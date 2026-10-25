@@ -22,6 +22,7 @@ typedef const wchar_t *PCWSTR;
 typedef int BOOLEAN;
 typedef UCHAR BYTE;
 typedef uint64_t ULONG64, ULONGLONG;
+typedef long long LONGLONG, *PLONGLONG;
 typedef size_t SIZE_T;
 typedef uintptr_t ULONG_PTR;
 
@@ -68,6 +69,7 @@ typedef struct _IO_STACK_LOCATION IO_STACK_LOCATION, *PIO_STACK_LOCATION;
 #define STATUS_INVALID_VIEW_SIZE     ((NTSTATUS)0xC000001F)
 #define STATUS_PENDING               ((NTSTATUS)0x00000103)
 #define STATUS_NOT_FOUND             ((NTSTATUS)0xC0000225)
+#define STATUS_DEVICE_CONFIGURATION_ERROR ((NTSTATUS)0xC0000182)
 
 #define NT_SUCCESS(s) ((NTSTATUS)(s) >= 0)
 

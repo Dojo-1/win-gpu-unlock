@@ -3,8 +3,8 @@
 #define GPU_UNLOCK_DIAGNOSTIC_H
 #if defined(GU_WINDOWS_KERNEL)
 #include "gu_env.h"
-#define GU_NOTE(fmt, ...) DbgPrintEx(DPFLTR_DEFAULT_ID, DPFLTR_INFO_LEVEL,  "gpu_unlock: " fmt, __VA_ARGS__)
-#define GU_ERROR(fmt, ...) DbgPrintEx(DPFLTR_DEFAULT_ID, DPFLTR_ERROR_LEVEL, "gpu_unlock: " fmt, __VA_ARGS__)
+#define GU_NOTE(fmt, ...) DbgPrintEx(DPFLTR_DEFAULT_ID, DPFLTR_INFO_LEVEL,  "gpu_unlock: " fmt, ##__VA_ARGS__)
+#define GU_ERROR(fmt, ...) DbgPrintEx(DPFLTR_DEFAULT_ID, DPFLTR_ERROR_LEVEL, "gpu_unlock: " fmt, ##__VA_ARGS__)
 #elif defined(__KERNEL__)
 #include <linux/printk.h>
 #define GU_NOTE(fmt, ...) pr_info("gpu_unlock: " fmt, ##__VA_ARGS__)

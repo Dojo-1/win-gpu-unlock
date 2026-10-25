@@ -14,6 +14,7 @@
  *  - The resume/suspend path is not ported (cold-induction path only).
  */
 #include "gu_transaction.h"
+#include "gu_rt.h"          // GU_RUN_OUT definition
 #include "gu_fw_blobs.h"
 #include <wdm.h>
 
@@ -445,7 +446,7 @@ static int wait_post_flr_gfw(GU_WORK *w) // u610:1292
 static int hold_sec2_reset(GU_WORK *w)
 {
     unsigned j;
-    u32 engine, first = 0, hwcfg;
+    u32 engine, hwcfg;
     int ret;
 
     if (read_bar(w, GuSec2Eng.base + 0x3c0, &engine) || inaccessible(engine))
@@ -454,7 +455,6 @@ static int hold_sec2_reset(GU_WORK *w)
     for (j = 0; j < 10; j++) { // 10 register cycles per ksec2ResetHw_TU102
         if (read_bar(w, GuSec2Eng.base + 0x3c0, &engine) || inaccessible(engine))
             return -EIO;
-        if (!j) first = engine;
     }
     ret = poll_us(w, GuSec2Eng.base + 0x3c0, 1, 1, 1000, true);
     if (ret)
@@ -686,7 +686,8 @@ NTSTATUS GuTxClaim(GU_WORK *w)
     w->BarLen = 0x1000000;
     if (w->BarLen < 0x421000)
         return GuErrToNt(-EINVAL);
-    void *bar = MmMapIoSpace(w->BarPa, (SIZE_T)w->BarLen, MmNonCached);
+    PHYSICAL_ADDRESS barPa; barPa.QuadPart = w->BarPa;
+    void *bar = MmMapIoSpace(barPa, (SIZE_T)w->BarLen, MmNonCached);
     if (!bar)
         return GuErrToNt(-ENOMEM);
     w->Bar = (volatile u32 *)bar;
