@@ -40,6 +40,15 @@ int KeDelayExecutionThread(int mode, BOOLEAN alertable, LARGE_INTEGER *interval)
 { (void)mode; (void)alertable; (void)interval; g_now_100ns += 100000; return 0; }
 void KeMemoryBarrier(void) {}
 
+/* Zw surface stubs: all fail, so GuGspOpen refuses (fail-closed smoke path) */
+NTSTATUS ZwCreateFile(void **h, ULONG a, void *oa, void *iosb, void *al, ULONG at, ULONG sh, ULONG d, ULONG o, void *e, ULONG el)
+{ (void)h;(void)a;(void)oa;(void)iosb;(void)al;(void)at;(void)sh;(void)d;(void)o;(void)e;(void)el; return STATUS_UNSUCCESSFUL; }
+NTSTATUS ZwReadFile(void *h, void *ev, void *a1, void *a2, void *iosb, void *buf, ULONG len, LARGE_INTEGER *off, void *k)
+{ (void)h;(void)ev;(void)a1;(void)a2;(void)iosb;(void)buf;(void)len;(void)off;(void)k; return STATUS_UNSUCCESSFUL; }
+NTSTATUS ZwQueryInformationFile(void *h, void *iosb, void *info, ULONG len, ULONG cls)
+{ (void)h;(void)iosb;(void)info;(void)len;(void)cls; return STATUS_UNSUCCESSFUL; }
+void ZwClose(void *h) { (void)h; }
+
 ULONG HalGetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len)
 { (void)t; (void)bus; (void)slot; (void)off; memset(buf, 0xff, len); return len; }
 ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len)
