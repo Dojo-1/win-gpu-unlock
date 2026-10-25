@@ -557,10 +557,13 @@ NTSTATUS GuTxAssets(GU_WORK *w)
 
     if (GuFwV67Size != GU_V67_SIZE)
         return GuErrToNt(-EBADMSG);
-    ret = gpu_unlock_elf_section(GuFwGsp, GuFwGspSize, ".fwimage", &w->ImageSpan);
-    if (ret)
-        return GuErrToNt(ret);
-    ret = gpu_unlock_elf_section(GuFwGsp, GuFwGspSize, ".fwsignature_ga10x", &w->SigSpan);
+    // spans hash-bound at build time (make_fw_blobs.py parses the ELF once);
+    // same bounds the runtime parser enforced (u610:625-635)
+    w->ImageSpan.offset = GuGspImageOffset;
+    w->ImageSpan.size = GuGspImageSize;
+    w->SigSpan.offset = GuGspSigOffset;
+    w->SigSpan.size = GuGspSigSize;
+    ret = GuGspOpen(w);
     if (ret)
         return GuErrToNt(ret);
     if (!w->ImageSpan.size || w->ImageSpan.size > 128ull << 20 || w->SigSpan.size != 4096)
@@ -863,10 +866,13 @@ static int unlock_transaction_radix(GU_WORK *w)
         addresses[i] = (u64)page->Dma.QuadPart;
         RtlZeroMemory(page->Cpu, GU_RADIX_PAGE);
         if (i >= r->table_pages) {
+            // local 4 KiB fiber of the image, read straight into its page
             u64 offset = (i - r->table_pages) * GU_RADIX_PAGE;
             SIZE_T n = w->ImageSpan.size - offset < GU_RADIX_PAGE ?
                        (SIZE_T)(w->ImageSpan.size - offset) : GU_RADIX_PAGE;
-            RtlCopyMemory(page->Cpu, GuFwGsp + w->ImageSpan.offset + offset, n);
+            ret = GuGspRead(w, w->ImageSpan.offset + offset, page->Cpu, n);
+            if (ret)
+                goto out;
         }
     }
     for (level = 0; level < 3; level++) {
@@ -919,7 +925,11 @@ NTSTATUS GuTxDma(GU_WORK *w)
     w->BootCpu = GuDmaAlloc(w->BootDesc.image_size, &w->BootDma);
     if (!w->StockCpu || !w->BootCpu)
         return GuErrToNt(-ENOMEM);
-    RtlCopyMemory(w->StockCpu, GuFwGsp + w->SigSpan.offset, (SIZE_T)w->StockSize);
+    {
+        int r2 = GuGspRead(w, w->SigSpan.offset, w->StockCpu, (SIZE_T)w->StockSize);
+        if (r2)
+            return GuErrToNt(r2);
+    }
     RtlCopyMemory(w->BootCpu, GuFwBoot, w->BootDesc.image_size);
     {
         int ret = patch_booter(w);
@@ -1203,6 +1213,7 @@ NTSTATUS GuTxUnwind(GU_WORK *w)
         w->BarMapped = FALSE;
     }
     free_coherent(w);
+    GuGspClose(w);
     if (!w->CmdValid)
         return GuErrToNt(ret);
     if (GuCfgWordR(w, PCI_COMMAND, &now, FALSE) || now == 0xffff)

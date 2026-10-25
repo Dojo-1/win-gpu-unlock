@@ -64,6 +64,8 @@ typedef struct _GU_WORK {
     // last-op traces (u610.c:94-98)
     u32 LastOffset, LastValue; BOOLEAN LastValid;
     u32 LastPciOffset, LastPciValue; int LastPciError; BOOLEAN LastPciCap;
+    // GSP image file (gu_gsp.c): opened at assets, closed at unwind
+    HANDLE GspHandle;
     // reporting
     struct _GU_RUN_OUT *Out;
 } GU_WORK;
@@ -85,6 +87,10 @@ NTSTATUS GuTxBoot(GU_WORK *w);
 NTSTATUS GuTxSelector(GU_WORK *w);
 NTSTATUS GuTxReset(GU_WORK *w);
 NTSTATUS GuTxUnwind(GU_WORK *w);
+
+int  GuGspOpen(GU_WORK *w);          // 0 / Linux errno; size-checked
+int  GuGspRead(GU_WORK *w, unsigned long long fileOffset, void *buf, SIZE_T len);
+void GuGspClose(GU_WORK *w);
 
 // errno -> NTSTATUS boundary map (gu_rt.c uses this)
 NTSTATUS GuErrToNt(int err);

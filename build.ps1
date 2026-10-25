@@ -1,91 +1,71 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# gpu-unlock-rt · build + test-sign. Prerequisites (gate G1, PORT-MANIFOLD §4):
-#   - LLVM 20.x on PATH or -Clang path (clang-cl + lld-link; WDK/msbuild also works)
-#   - Windows SDK (for ntddk headers — ships with WDK; clang can use WDK include dirs)
-#   - Firmware assets generated upstream: run ../gpu-unlock/firmware/{fetch_artifacts,generate_v67,extract_boot_assets}.py
-#   - Test signing requires admin + testsigning enabled OR self-signed cert + SB off
-# Usage: .\build.ps1 [-AssetDir ..\gpu-unlock\firmware\out] [-Clang C:\path\clang-cl.exe]
-param(
-    [string]$AssetDir = "",
-    [string]$Clang = "clang-cl",
-    [string]$LldLink = "lld-link"
-)
+# gpu-unlock-rt · build + test-sign (MSVC/VS2022 + WDK headers/libs).
+# Prerequisites:
+#   - VS2022 with C++ toolset (cl at VC\Tools\MSVC\*\bin\Hostx64\x64)
+#   - WDK 10 (winget install Microsoft.WindowsWDK.10.0.26100)  [gate G1 prerequisite]
+#   - driver/gu_fw_blobs.h generated: python tools\make_fw_blobs.py <asset_dir> driver\gu_fw_blobs.h
+#   - GSP image deployed: copy gsp_ga10x.bin -> C:\Windows\System32\drivers\GuRtGsp.bin (admin)
+# Usage: .\build.ps1 [-NoSign]
+param([switch]$NoSign)
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$drv = Join-Path $root 'driver'
-$out = Join-Path $root 'build'
+$drv  = Join-Path $root 'driver'
+$out  = Join-Path $root 'build'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-# 1) firmware blobs
-if ($AssetDir -ne '') {
-    python (Join-Path $root 'tools\make_fw_blobs.py') $AssetDir (Join-Path $drv 'gu_fw_blobs.h')
-    if ($LASTEXITCODE) { throw "make_fw_blobs failed" }
-} elseif (-not (Test-Path (Join-Path $drv 'gu_fw_blobs.h.generated'))) {
-    # allow a pre-generated header to persist: presence check happens at compile
+if (-not (Test-Path (Join-Path $drv 'gu_fw_blobs.h'))) {
+    throw "driver/gu_fw_blobs.h missing - run tools/make_fw_blobs.py first"
 }
 
-# 2) locate WDK include/lib (needed for ntddk.h / hal APIs)
-$wdkRoots = @("$env:ProgramFiles(x86)\Windows Kits\10", "$env:ProgramFiles\Windows Kits\10")
-$wdk = $null
-foreach ($r in $wdkRoots) {
-    if (Test-Path $r) {
-        $inc = Get-ChildItem "$r\Include" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-        $lib = Get-ChildItem "$r\Lib"   -Directory | Sort-Object Name -Descending | Select-Object -First 1
-        if ($inc -and $lib) { $wdk = @{ Inc = $inc.FullName; Lib = $lib.FullName }; break }
-    }
-}
-if (-not $wdk) { throw "WDK not found under Windows Kits\10 — install WDK (gate G1 prerequisite)." }
-$kmInc = Join-Path $wdk.Inc 'km'
-$ucrtInc = Join-Path $wdk.Inc 'ucrt'
-$sharedInc = Join-Path $wdk.Inc 'shared'
-$kmLibX64 = Join-Path $wdk.Lib 'km\x64'
-Write-Host "WDK: $($wdk.Inc)"
+# --- locate VS2022 cl + WDK 26100 ---
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vsPath  = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if (-not $vsPath) { throw "VS2022 C++ toolset not found" }
+$vcvars  = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+$msvcToolset = (Get-ChildItem (Join-Path $vsPath 'VC\Tools\MSVC') | Sort-Object Name -Descending | Select-Object -First 1).FullName
+$kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
+$sdk  = Get-ChildItem "$kits\Include" -Directory | Where-Object Name -eq '10.0.26100.0' | Select-Object -First 1
+if (-not $sdk -or -not (Test-Path "$($sdk.FullName)\km")) { throw "WDK 10.0.26100 not installed (winget install Microsoft.WindowsWDK.10.0.26100)" }
+$inc = $sdk.FullName
+Write-Host "MSVC: $msvcToolset"
+Write-Host "WDK : $inc"
 
-# 3) compile: driver core + portable GPL modules
-$sources = @(
-    'gu_rt.c',
-    'gu_transaction.c',
-    'portable\prep_610.c',
-    'portable\vbios_610.c',
-    'portable\layout_610.c',
-    'portable\gfw_eval.c'
-)
-$commonArgs = @(
-    '/c', '/Zi', '/W4', '/WX-', '/GS-', '/GR-',
-    '/D', '_AMD64_', '/D', '_WIN64', '/D', 'WIN32_LEAN_AND_MEAN',
-    '/D', 'GU_WINDOWS_KERNEL=1',
-    "/I$drv", "/I$kmInc", "/I$ucrtInc", "/I$sharedInc"
-)
-$objects = @()
+$sources = @('gu_rt.c','gu_transaction.c','gu_gsp.c',
+             'portable\prep_610.c','portable\vbios_610.c','portable\layout_610.c','portable\gfw_eval.c')
+$includes = "/I`"$drv`" /I`"$inc\km`" /I`"$inc\km\crt`" /I`"$inc\shared`" /I`"$inc\ucrt`" /I`"$inc\um`""
+$flags = "/nologo /c /kernel /Zi /W4 /GS- /GR- /Gz /D_AMD64_ /D_WIN64 /DWIN32_LEAN_AND_MEAN /DGU_WINDOWS_KERNEL=1"
+
+$cl_lines = @("call `"$vcvars`"")
 foreach ($s in $sources) {
-    $obj = Join-Path $out (([IO.Path]::GetFileNameWithoutExtension($s)) + '.obj')
-    & $Clang @commonArgs (Join-Path $drv $s) "/Fo$obj"
-    if ($LASTEXITCODE) { throw "compile failed: $s" }
-    $objects += $obj
+    $obj = Join-Path $out ([IO.Path]::GetFileNameWithoutExtension($s) + '.obj')
+    $cl_lines += "cl $flags $includes /Fo`"$obj`" `"$drv\$s`" || exit /b 1"
 }
+$kmLib = "$kits\Lib\10.0.26100.0\km\x64"
+$cl_lines += "link /nologo /DEBUG:FULL /MACHINE:X64 /SUBSYSTEM:NATIVE,10 /DRIVER /ENTRY:DriverEntry " +
+             "/OUT:`"$out\GuRtUnlock.sys`" /PDB:`"$out\GuRtUnlock.pdb`" `"$kmLib\ntoskrnl.lib`" `"$kmLib\hal.lib`" " +
+             (($sources | ForEach-Object { "`"$out\$(Split-Path $_ -Leaf).obj`"" }) -join ' ').Replace('.c.obj','.obj') + " || exit /b 1"
 
-# 4) link a native driver image
-& $LldLink @(
-    '/DEBUG:FULL', '/MACHINE:X64', '/SUBSYSTEM:NATIVE,10', '/DRIVER',
-    '/ENTRY:DriverEntry', '/NODEFAULTLIB',
-    (Join-Path $kmLibX64 'ntoskrnl.lib')
-) -OUT:(Join-Path $out 'GuRtUnlock.sys') @objects
-if ($LASTEXITCODE) { throw "link failed" }
-Write-Host "built: $out\GuRtUnlock.sys"
+$cmdFile = Join-Path $out 'build.cmd'
+Set-Content -Path $cmdFile -Value ($cl_lines -join "`r`n")
+& cmd.exe /c $cmdFile
+if ($LASTEXITCODE) { throw "build failed" }
+Get-Item "$out\GuRtUnlock.sys" | Select-Object Name, Length
 
-# 5) test-sign (gate G1): requires admin. Enable once per boot-config:
-#   bcdedit /set testsigning on        (then reboot; Secure Boot must be OFF)
+if ($NoSign) { return }
+
+# --- test-sign (gate G1): admin required ---
 if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
      ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $cert = Join-Path $out 'GuRtTest.pfx'
+    $cert = "$out\GuRtTest.pfx"
     if (-not (Test-Path $cert)) {
-        & signtool makecert /r /h 0 /n "CN=GuRtTest" /sv (Join-Path $out 'GuRtTest.pvk') (Join-Path $out 'GuRtTest.cer') *> $null
-        & signtool pvk2pfx /pvk (Join-Path $out 'GuRtTest.pvk') /spc (Join-Path $out 'GuRtTest.cer') /pfx $cert *> $null
+        $pw = ConvertTo-SecureString 'gu-rt-test' -AsPlainText -Force
+        New-SelfSignedCertificate -Subject 'CN=GuRtTest' -Type CodeSigningCert -CertStoreLocation 'Cert:\CurrentUser\My' |
+            ForEach-Object { Export-PfxCertificate -Cert $_ -FilePath $cert -Password $pw }
     }
-    & signtool sign /fd SHA256 /f $cert (Join-Path $out 'GuRtUnlock.sys')
-    Write-Host "signed: GuRtUnlock.sys (test cert $cert)"
-    Write-Host "load:   sc create GuRtUnlock type= kernel binPath= $out\GuRtUnlock.sys && sc start GuRtUnlock"
+    $signtool = "$kits\bin\10.0.26100.0\x64\signtool.exe"
+    & $signtool sign /fd SHA256 /f $cert /p gu-rt-test "$out\GuRtUnlock.sys"
+    Write-Host "signed. Enable once: bcdedit /set testsigning on  (Secure Boot must be OFF), then reboot."
 } else {
-    Write-Host "not admin: skipping test-sign (see header of this script)"
+    Write-Host "not elevated: skipping sign (run from admin shell for G1)"
 }

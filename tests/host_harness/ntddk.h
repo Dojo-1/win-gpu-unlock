@@ -110,6 +110,25 @@ typedef union _PCI_SLOT_NUMBER {
 ULONG HalGetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
 ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
 
+// ---- object / file (gu_gsp.c surface) ----
+typedef struct _OBJECT_ATTRIBUTES { ULONG Length; void *RootDirectory; const wchar_t *ObjectName; ULONG Attributes; void *SecurityDescriptor; void *SecurityQualityOfService; } OBJECT_ATTRIBUTES, *POBJECT_ATTRIBUTES;
+typedef struct _FILE_STANDARD_INFORMATION { LARGE_INTEGER AllocationSize; LARGE_INTEGER EndOfFile; ULONG NumberOfLinks; BOOLEAN DeletePending; BOOLEAN Directory; } FILE_STANDARD_INFORMATION;
+#define OBJ_CASE_INSENSITIVE 0x40
+#define OBJ_KERNEL_HANDLE    0x200
+#define FILE_READ_DATA       0x0001
+#define SYNCHRONIZE          0x00100000
+#define FILE_SHARE_READ      0x1
+#define FILE_OPEN            0x1
+#define FILE_SYNCHRONOUS_IO_NONALERT 0x20
+#define FILE_NON_DIRECTORY_FILE      0x40
+#define FILE_ATTRIBUTE_NORMAL 0x80
+#define FILE_STANDARD_INFORMATION_CLASS 5
+#define InitializeObjectAttributes(p, n, a, r, s) do { (p)->Length = sizeof(OBJECT_ATTRIBUTES); (p)->RootDirectory = (r); (p)->ObjectName = (n); (p)->Attributes = (a); (p)->SecurityDescriptor = (s); (p)->SecurityQualityOfService = 0; } while (0)
+NTSTATUS ZwCreateFile(void **handle, ULONG access, void *oa, void *iosb, void *alloc, ULONG attrs, ULONG share, ULONG disp, ULONG opts, void *eabuf, ULONG ealen);
+NTSTATUS ZwReadFile(void *handle, void *event, void *apcrc, void *apctx, void *iosb, void *buf, ULONG len, LARGE_INTEGER *off, void *key);
+NTSTATUS ZwQueryInformationFile(void *handle, void *iosb, void *info, ULONG len, ULONG cls);
+void ZwClose(void *handle);
+
 // ---- IRP machinery ----
 #define IRP_MJ_CREATE 0
 #define IRP_MJ_CLOSE  2
