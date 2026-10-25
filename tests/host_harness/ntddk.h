@@ -73,27 +73,27 @@ typedef struct _IO_STACK_LOCATION IO_STACK_LOCATION, *PIO_STACK_LOCATION;
 #define DPFLTR_DEFAULT_ID 0
 #define DPFLTR_INFO_LEVEL 3
 #define DPFLTR_ERROR_LEVEL 0
-__declspec(dllexport) int DbgPrintEx(int comp, int level, const char *fmt, ...);
+int DbgPrintEx(int comp, int level, const char *fmt, ...);
 
 // ---- pool ----
 #define POOL_FLAG_NON_PAGED 0x0000000000000040ULL
-__declspec(dllexport) void *ExAllocatePool2(unsigned long long flags, SIZE_T size, unsigned long tag);
-__declspec(dllexport) void ExFreePoolWithTag(void *p, unsigned long tag);
+void *ExAllocatePool2(unsigned long long flags, SIZE_T size, unsigned long tag);
+void ExFreePoolWithTag(void *p, unsigned long tag);
 
 // ---- MM ----
-__declspec(dllexport) void *MmMapIoSpace(PHYSICAL_ADDRESS pa, SIZE_T n, int cache);
-__declspec(dllexport) void MmUnmapIoSpace(void *va, SIZE_T n);
-__declspec(dllexport) PHYSICAL_ADDRESS MmGetPhysicalAddress(void *va);
+void *MmMapIoSpace(PHYSICAL_ADDRESS pa, SIZE_T n, int cache);
+void MmUnmapIoSpace(void *va, SIZE_T n);
+PHYSICAL_ADDRESS MmGetPhysicalAddress(void *va);
 #define MmNonCached 0
 #define MmCached 2
-__declspec(dllexport) void *MmAllocateContiguousMemorySpecifyCache(SIZE_T n, PHYSICAL_ADDRESS lo, PHYSICAL_ADDRESS hi, int cache);
-__declspec(dllexport) void MmFreeContiguousMemorySpecifyCache(void *va, SIZE_T n, int cache);
+void *MmAllocateContiguousMemorySpecifyCache(SIZE_T n, PHYSICAL_ADDRESS lo, PHYSICAL_ADDRESS hi, int cache);
+void MmFreeContiguousMemorySpecifyCache(void *va, SIZE_T n, int cache);
 
 // ---- time / sync ----
-__declspec(dllexport) unsigned long long KeQueryInterruptTime(void);
-__declspec(dllexport) int KeDelayExecutionThread(int mode, BOOLEAN alertable, LARGE_INTEGER *interval);
+unsigned long long KeQueryInterruptTime(void);
+int KeDelayExecutionThread(int mode, BOOLEAN alertable, LARGE_INTEGER *interval);
 #define KernelMode 0
-__declspec(dllexport) void KeMemoryBarrier(void);
+void KeMemoryBarrier(void);
 
 // ---- HAL PCI bus data ----
 typedef enum _BUS_DATA_TYPE { PCIConfiguration = 4 } BUS_DATA_TYPE, *PBUS_DATA_TYPE;
@@ -101,8 +101,8 @@ typedef union _PCI_SLOT_NUMBER {
     ULONG AsULONG;
     struct { ULONG bits0_4:5, DeviceNumber:5, FunctionNumber:3, bits13_31:16; } bits;
 } PCI_SLOT_NUMBER, *PPCI_SLOT_NUMBER;
-__declspec(dllexport) ULONG HalGetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
-__declspec(dllexport) ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
+ULONG HalGetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
+ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
 
 // ---- IRP machinery ----
 #define IRP_MJ_CREATE 0
@@ -114,19 +114,19 @@ struct _IO_STACK_LOCATION {
         struct { PVOID Type3InputBuffer; ULONG DeviceIoControlCode; ULONG InputBufferLength; } DeviceIoControl;
     } Parameters;
 };
-__declspec(dllexport) PIO_STACK_LOCATION IoGetCurrentIrpStackLocation(PIRP irp);
+PIO_STACK_LOCATION IoGetCurrentIrpStackLocation(PIRP irp);
 struct _IRP { IO_STATUS_BLOCK IoStatus; PVOID AssociatedIrpSystemBuffer; };
-__declspec(dllexport) void IoCompleteRequest(PIRP irp, char prioboost);
+void IoCompleteRequest(PIRP irp, char prioboost);
 
 // ---- device / driver ----
 #define FILE_DEVICE_UNKNOWN 0x00000022
 #define FILE_DEVICE_SECURE_OPEN 0x00000100
-__declspec(dllexport) NTSTATUS IoCreateDevice(PDRIVER_OBJECT drv, ULONG ext, PUNICODE_STRING name, ULONG type, ULONG chars, BOOLEAN exclusive, PDEVICE_OBJECT *out);
-__declspec(dllexport) void IoDeleteDevice(PDEVICE_OBJECT dev);
-__declspec(dllexport) NTSTATUS IoCreateSymbolicLink(PUNICODE_STRING link, PUNICODE_STRING target);
-__declspec(dllexport) void IoDeleteSymbolicLink(PUNICODE_STRING link);
-__declspec(dllexport) void ObReferenceObject(void *obj);
-__declspec(dllexport) void RtlInitUnicodeString(PUNICODE_STRING s, PCWSTR buf);
+NTSTATUS IoCreateDevice(PDRIVER_OBJECT drv, ULONG ext, PUNICODE_STRING name, ULONG type, ULONG chars, BOOLEAN exclusive, PDEVICE_OBJECT *out);
+void IoDeleteDevice(PDEVICE_OBJECT dev);
+NTSTATUS IoCreateSymbolicLink(PUNICODE_STRING link, PUNICODE_STRING target);
+void IoDeleteSymbolicLink(PUNICODE_STRING link);
+void ObReferenceObject(void *obj);
+void RtlInitUnicodeString(PUNICODE_STRING s, PCWSTR buf);
 typedef NTSTATUS (*DRIVER_DISPATCH)(PDEVICE_OBJECT, PIRP);
 typedef DRIVER_DISPATCH PDRIVER_DISPATCH;
 typedef void (*PDRIVER_UNLOAD)(PDRIVER_OBJECT);
