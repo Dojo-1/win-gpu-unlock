@@ -31,8 +31,8 @@ void MmUnmapIoSpace(void *va, SIZE_T n) { (void)n; if (va == g_mapio_last) g_map
 
 PHYSICAL_ADDRESS MmGetPhysicalAddress(void *va)
 { PHYSICAL_ADDRESS p; p.QuadPart = 0x10000000ull + (unsigned long long)(uintptr_t)va; return p; }
-void *MmAllocateContiguousMemorySpecifyCache(SIZE_T n, PHYSICAL_ADDRESS lo, PHYSICAL_ADDRESS hi, int cache)
-{ (void)lo; (void)hi; (void)cache; return calloc(1, n); }
+void *MmAllocateContiguousMemorySpecifyCache(SIZE_T n, PHYSICAL_ADDRESS lo, PHYSICAL_ADDRESS hi, PHYSICAL_ADDRESS boundary, int cache)
+{ (void)lo; (void)hi; (void)boundary; (void)cache; return calloc(1, n); }
 void MmFreeContiguousMemorySpecifyCache(void *va, SIZE_T n, int cache) { (void)n; (void)cache; free(va); }
 
 unsigned long long KeQueryInterruptTime(void) { return g_now_100ns; }

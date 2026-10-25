@@ -27,7 +27,7 @@ GSP_PATH = "\\SystemRoot\\System32\\drivers\\GuRtGsp.bin"
 
 
 def c_array(name: str, data: bytes) -> str:
-    lines = [f"const unsigned char {name}[] = {{"]
+    lines = [f"static const unsigned char {name}[] = {{"]
     for i in range(0, len(data), 16):
         chunk = ", ".join(f"0x{b:02x}" for b in data[i:i + 16])
         lines.append(f"    {chunk},")

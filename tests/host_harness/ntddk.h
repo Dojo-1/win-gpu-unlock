@@ -65,7 +65,6 @@ typedef struct _IO_STACK_LOCATION IO_STACK_LOCATION, *PIO_STACK_LOCATION;
 #define STATUS_ALREADY_COMPLETE      ((NTSTATUS)0x00000184)
 #define STATUS_NOT_SUPPORTED         ((NTSTATUS)0xC00000BB)
 #define STATUS_DATA_ERROR            ((NTSTATUS)0xC000003E)
-#define STATUS_PROTOCOL_ERROR        ((NTSTATUS)0xC000018B)
 #define STATUS_INVALID_VIEW_SIZE     ((NTSTATUS)0xC000001F)
 #define STATUS_PENDING               ((NTSTATUS)0x00000103)
 #define STATUS_NOT_FOUND             ((NTSTATUS)0xC0000225)
@@ -90,7 +89,7 @@ void MmUnmapIoSpace(void *va, SIZE_T n);
 PHYSICAL_ADDRESS MmGetPhysicalAddress(void *va);
 #define MmNonCached 0
 #define MmCached 2
-void *MmAllocateContiguousMemorySpecifyCache(SIZE_T n, PHYSICAL_ADDRESS lo, PHYSICAL_ADDRESS hi, int cache);
+void *MmAllocateContiguousMemorySpecifyCache(SIZE_T n, PHYSICAL_ADDRESS lo, PHYSICAL_ADDRESS hi, PHYSICAL_ADDRESS boundary, int cache);
 void MmFreeContiguousMemorySpecifyCache(void *va, SIZE_T n, int cache);
 
 // ---- time / sync ----

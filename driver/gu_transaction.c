@@ -55,8 +55,9 @@ static void GuFree(void *p) { if (p) ExFreePoolWithTag(p, GU_TAG); }
 // below 4 GiB. The falcon DMAs physical addresses (u610:150).
 static void *GuDmaAlloc(SIZE_T size, PHYSICAL_ADDRESS *dma)
 {
-    PHYSICAL_ADDRESS maxAddr; maxAddr.QuadPart = 0xFFFFFFFFull; // DMA_BIT_MASK(32) u610:892
-    void *cpu = MmAllocateContiguousMemorySpecifyCache(size, MmGetPhysicalAddress((void *)(ULONG_PTR)0), maxAddr, MmCached);
+    PHYSICAL_ADDRESS maxAddr, boundary; maxAddr.QuadPart = 0xFFFFFFFFull; // DMA_BIT_MASK(32) u610:892
+    boundary.QuadPart = 0; // no boundary constraint
+    void *cpu = MmAllocateContiguousMemorySpecifyCache(size, MmGetPhysicalAddress((void *)(ULONG_PTR)0), maxAddr, boundary, MmCached);
     if (cpu) dma->QuadPart = MmGetPhysicalAddress(cpu).QuadPart;
     else GU_ERROR("dma alloc failed bytes=%llu\n", (unsigned long long)size);
     return cpu;
@@ -1245,7 +1246,7 @@ NTSTATUS GuErrToNt(int err)
     case -EALREADY:  return STATUS_ALREADY_COMPLETE;   // card already unlocked
     case -EOPNOTSUPP:return STATUS_NOT_SUPPORTED;
     case -EBADMSG:   return STATUS_DATA_ERROR;
-    case -EPROTO:    return STATUS_PROTOCOL_ERROR;
+    case -EPROTO:    return STATUS_IO_DEVICE_ERROR;
     case -ERANGE:    return STATUS_INVALID_VIEW_SIZE;
     default:         return STATUS_UNSUCCESSFUL;
     }
