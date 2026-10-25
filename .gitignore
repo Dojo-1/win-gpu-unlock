@@ -1,0 +1,9 @@
+build/
+*.obj
+*.sys
+*.pdb
+*.pfx
+*.pvk
+*.cer
+driver/gu_fw_blobs.h.generated
+firmware-assets/

@@ -1,0 +1,42 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  harness:
+    name: host harness (full kernel-branch compile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compile kernel branch against mock WDK
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -D_GU_WINDOWS_KERNEL_WORKAROUND=0 \
+            -DGU_WINDOWS_KERNEL=1 \
+            -Idriver -Itests/host_harness \
+            -o harness \
+            tests/host_harness/harness.c \
+            driver/gu_rt.c \
+            driver/gu_transaction.c \
+            driver/portable/prep_610.c \
+            driver/portable/vbios_610.c \
+            driver/portable/layout_610.c \
+            driver/portable/gfw_eval.c
+      - name: run smoke checks
+        run: ./harness
+
+  host-portable:
+    name: portable modules (host mode, as upstream tests them)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compile portable modules in host mode
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Idriver -c \
+            driver/portable/prep_610.c \
+            driver/portable/vbios_610.c \
+            driver/portable/layout_610.c \
+            driver/portable/gfw_eval.c
+      - name: blob generator self-check
+        run: python tools/make_fw_blobs.py || test $? -eq 2
