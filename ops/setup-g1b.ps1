@@ -31,19 +31,19 @@ try {
                  -CertStoreLocation 'Cert:\LocalMachine\My' -NotAfter (Get-Date).AddYears(2)
         Write-Host "created cert thumbprint $($cert.Thumbprint)"
     }
+    $cerFile = Join-Path $build 'GuRtTest.cer'
+    Export-Certificate -Cert $cert -FilePath $cerFile | Out-Null
     foreach ($store in 'Root','TrustedPublisher') {
         $existing = Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object Thumbprint -eq $cert.Thumbprint
-        if (-not $existing) { Import-Certificate -FilePath ($cert.PSPath -replace '^Cert:',"$($cert.PSProvider.Name):") -CertStoreLocation "Cert:\LocalMachine\$store" | Out-Null }
+        if (-not $existing) { Import-Certificate -FilePath $cerFile -CertStoreLocation "Cert:\LocalMachine\$store" | Out-Null; Write-Host "imported to $store" }
     }
-    # (re-fetch by thumbprint for a clean file path)
-    $cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object Thumbprint -eq $cert.Thumbprint | Select-Object -First 1
     $pfx = Join-Path $build 'GuRtTest.pfx'
     $pw = ConvertTo-SecureString 'gu-rt-test' -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pw | Out-Null
 
     # 3) sign
     $signtool = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-    & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint (Join-Path $build 'GuRtUnlock.sys')
+    & $signtool sign /fd SHA256 /f $pfx /p gu-rt-test (Join-Path $build 'GuRtUnlock.sys')
     if ($LASTEXITCODE) { Set-Content (Join-Path $build 'g1b-FAILED') "signtool $LASTEXITCODE"; return }
     & $signtool verify /v /pa (Join-Path $build 'GuRtUnlock.sys') | Select-Object -First 6
 

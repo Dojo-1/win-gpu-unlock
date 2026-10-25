@@ -124,11 +124,11 @@ static NTSTATUS GuDeviceControl(PDEVICE_OBJECT d, PIRP i)
         st = STATUS_INVALID_DEVICE_REQUEST;
         break;
     }
-    if (st != STATUS_BUFFER_TOO_SMALL && st != STATUS_PENDING) {
-        if (i->IoStatus.Status == 0)
-            i->IoStatus.Status = st;
-        IoCompleteRequest(i, IO_NO_INCREMENT);
-    }
+    // complete on EVERY path: an uncompleted IRP wedges the file object (and
+    // with it driver unload) forever. No path in this driver pends.
+    if (i->IoStatus.Status == 0)
+        i->IoStatus.Status = st;
+    IoCompleteRequest(i, IO_NO_INCREMENT);
     return st;
 }
 

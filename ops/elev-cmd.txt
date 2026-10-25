@@ -1,0 +1,1 @@
+bcdedit /enum `{current`} | Select-String testsigning; sc.exe start GuRtUnlock; sc.exe query GuRtUnlock

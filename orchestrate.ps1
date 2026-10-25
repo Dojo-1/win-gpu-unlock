@@ -44,7 +44,8 @@ Write-Host "target : $full  (status: $($dev.Status))"
 # --- derive BDF from the device's PCI location info ---
 $loc = (Get-PnpDeviceProperty -InstanceId $full -KeyName 'DEVPKEY_Device_LocationInfo').Data
 # e.g. "PCI Bus 1, Device 0, Function 0"
-if ($loc -notmatch 'PCI\s+Bus\s+(\d+),\s*Device\s+(\d+),\s*Function\s+(\d+)') {
+# locale-agnostic: three numbers in 'Bus PCI X, <word> Y, <word> Z'
+if ($loc -notmatch '(\d+)\D+(\d+)\D+(\d+)') {
     throw "cannot parse BDF from location info: '$loc'"
 }
 $bus, $slot, $fn = [int]$Matches[1], [int]$Matches[2], [int]$Matches[3]
@@ -62,7 +63,7 @@ try {
     Write-Host "disable: detaching nvlddmkm (console may blank NOW if this is the only GPU)"
     pnputil /disable-device $full | Out-Null
 
-    $h = [GuIo]::CreateFile("\\.\GuRtUnlock", 0xC0000000, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+    $h = [GuIo]::CreateFile("\\.\GuRtUnlock", [uint32]3221225472, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
     if ($h -eq -1 -or $h -eq [IntPtr]::Zero) { throw "open \\.\GuRtUnlock failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error()) (driver loaded? signed?)" }
 
     # GU_RUN_IN: Size,Bus,Device,Fn,PhaseLimit,Flags
@@ -71,13 +72,13 @@ try {
           [BitConverter]::GetBytes([uint32]$PhaseLimit) +
           [BitConverter]::GetBytes([uint32]$(if ($ConfirmBlackout) {1} else {0}))
     # GU_RUN_OUT: 8 + 13*4 + 8*4 + 4 + 8 = 92 -> pad to 96
-    $out = New-Object byte[] 96
+    $out = New-Object byte[] 108
     $ret = 0
-    $ok = [GuIo]::DeviceIoControl($h, 0x0022E000, $in, $in.Length, $out, $out.Length, [ref]$ret, [IntPtr]::Zero)
+    $ok = [GuIo]::DeviceIoControl($h, 0x00222004, $in, $in.Length, $out, $out.Length, [ref]$ret, [IntPtr]::Zero)
     [GuIo]::CloseHandle($h) | Out-Null
     if (-not $ok) { throw "IOCTL failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
     $reached = [BitConverter]::ToUInt32($out, 4)
-    Write-Host "tower  : phase reached $reached, diag id=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,8))) bar0=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,12))) chip=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,16)))"
+    Write-Host "tower  : phase reached $reached, diag id=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,64))) bar0=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,68))) chip=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,72))) pm=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,76)))"
 }
 finally {
     Write-Host "enable : rebinding driver (watchdog covers us at +$WatchdogSec s)"
