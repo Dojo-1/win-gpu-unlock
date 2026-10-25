@@ -72,19 +72,19 @@ typedef struct _GU_WORK {
 // non-arming addition. Signature runs twice (publish V67, restore stock).
 typedef NTSTATUS (*GU_PHASE_FN)(GU_WORK *);
 
-NTSTATUS GuPhaseProbe(GU_WORK *w);
-NTSTATUS GuPhaseAssets(GU_WORK *w);
-NTSTATUS GuPhaseClaim(GU_WORK *w);
-NTSTATUS GuPhaseInduce(GU_WORK *w);  // Windows-only: FLR induction of the boot path
-NTSTATUS GuPhaseGfw(GU_WORK *w);
-NTSTATUS GuPhaseLayout(GU_WORK *w);
-NTSTATUS GuPhaseDma(GU_WORK *w);
-NTSTATUS GuPhaseFwsec(GU_WORK *w);
-NTSTATUS GuPhaseSignature(GU_WORK *w);   // call-twice protocol enforced by caller
-NTSTATUS GuPhaseBoot(GU_WORK *w);
-NTSTATUS GuPhaseSelector(GU_WORK *w);
-NTSTATUS GuPhaseReset(GU_WORK *w);
-NTSTATUS GuPhaseUnwind(GU_WORK *w);
+NTSTATUS GuTxProbe(GU_WORK *w);
+NTSTATUS GuTxAssets(GU_WORK *w);
+NTSTATUS GuTxClaim(GU_WORK *w);
+NTSTATUS GuTxInduce(GU_WORK *w);  // Windows-only: FLR induction of the boot path
+NTSTATUS GuTxGfw(GU_WORK *w);
+NTSTATUS GuTxLayout(GU_WORK *w);
+NTSTATUS GuTxDma(GU_WORK *w);
+NTSTATUS GuTxFwsec(GU_WORK *w);
+NTSTATUS GuTxSignature(GU_WORK *w);   // call-twice protocol enforced by caller
+NTSTATUS GuTxBoot(GU_WORK *w);
+NTSTATUS GuTxSelector(GU_WORK *w);
+NTSTATUS GuTxReset(GU_WORK *w);
+NTSTATUS GuTxUnwind(GU_WORK *w);
 
 // errno -> NTSTATUS boundary map (gu_rt.c uses this)
 NTSTATUS GuErrToNt(int err);

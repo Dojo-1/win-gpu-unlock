@@ -123,7 +123,7 @@ int main(void)
     GU_WORK w; memset(&w, 0, sizeof(w));
     w.Out = &out; w.PciCapOff = -1; w.PmCapOff = -1;
     w.Bus = 1; w.Device = 0; w.Fn = 0;
-    NTSTATUS st = GuPhaseAssets(&w);
+    NTSTATUS st = GuTxAssets(&w);
     // elf section extraction will fail on the stand-in GSP (no .fwimage) — that
     // is the expected refusal; the check proves the parser fail-closed path.
     printf("assets on stand-in GSP: 0x%lx (expected refusal)\n", (unsigned long)st);

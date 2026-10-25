@@ -497,7 +497,7 @@ static void free_coherent(GU_WORK *w) // u610:489
 // ================= phases =====================================================
 
 // Phase 0 · probe — Windows-only, non-arming. Answers unknown E1.
-NTSTATUS GuPhaseProbe(GU_WORK *w)
+NTSTATUS GuTxProbe(GU_WORK *w)
 {
     u32 id, subsys, bar0lo, bar0hi;
     u32 chip = 0;
@@ -548,7 +548,7 @@ NTSTATUS GuPhaseProbe(GU_WORK *w)
 }
 
 // Phase 1 · assets — u610:610-655 + load_booter u610:434-470, from gu_fw_blobs.h.
-NTSTATUS GuPhaseAssets(GU_WORK *w)
+NTSTATUS GuTxAssets(GU_WORK *w)
 {
     const u8 *d;
     u32 magic, version, image_size, sig_bytes;
@@ -605,7 +605,7 @@ NTSTATUS GuPhaseAssets(GU_WORK *w)
 }
 
 // Phase 2 · claim — u610:801-876 + Windows specifics: cap walk, D0 induction.
-NTSTATUS GuPhaseClaim(GU_WORK *w)
+NTSTATUS GuTxClaim(GU_WORK *w)
 {
     u16 command, pmcsr;
     u32 cap;
@@ -700,7 +700,7 @@ NTSTATUS GuPhaseClaim(GU_WORK *w)
 // (WPR2 up, GSP-RM run) so the ROM boot path replays and the tower starts from
 // the cold entry the Linux module gets by running pre-driver. Mechanics ported
 // from the source's own reset phase (u610:1333-1430), minus selector logic.
-NTSTATUS GuPhaseInduce(GU_WORK *w)
+NTSTATUS GuTxInduce(GU_WORK *w)
 {
     u32 identity, bar, chip;
     u16 command;
@@ -743,7 +743,7 @@ NTSTATUS GuPhaseInduce(GU_WORK *w)
 }
 
 // Phase 4 · gfw — u610:1028-1074. Entry evidence + wait for ROM GFW.
-NTSTATUS GuPhaseGfw(GU_WORK *w)
+NTSTATUS GuTxGfw(GU_WORK *w)
 {
     u64 deadline = GuNowUs() + GU_GFW_TIMEOUT_US;
     int assessed = -EAGAIN;
@@ -785,7 +785,7 @@ NTSTATUS GuPhaseGfw(GU_WORK *w)
 }
 
 // Phase 5 · layout — u610:657-747.
-NTSTATUS GuPhaseLayout(GU_WORK *w)
+NTSTATUS GuTxLayout(GU_WORK *w)
 {
     struct gpu_unlock_layout_in *in = &w->LayoutIn;
     u32 mb, vga, lo, hi, plm;
@@ -902,7 +902,7 @@ static int patch_booter(GU_WORK *w)
 }
 
 // Phase 6 · dma — u610:878-919 (mask juggling is implicit in GuDmaAlloc's 4 GiB cap).
-NTSTATUS GuPhaseDma(GU_WORK *w)
+NTSTATUS GuTxDma(GU_WORK *w)
 {
     w->BooterCpu = GuDmaAlloc(w->BooterImageSize, &w->BooterDma);
     if (!w->BooterCpu)
@@ -928,7 +928,7 @@ NTSTATUS GuPhaseDma(GU_WORK *w)
 
 // Phase 7 · fwsec — u610:921-1026. Runs the board ROM's FWSEC-FRTS on the GSP
 // falcon to provision WPR2 at the layout's FRTS offset.
-NTSTATUS GuPhaseFwsec(GU_WORK *w)
+NTSTATUS GuTxFwsec(GU_WORK *w)
 {
     SIZE_T mapped = 0;
     u8 *rom = NULL;
@@ -1026,7 +1026,7 @@ out:
 
 // Phase 8/10 · signature — u610:1137-1167. First call publishes V67 (the ROP
 // payload's signature slot), second restores the stock signature.
-NTSTATUS GuPhaseSignature(GU_WORK *w)
+NTSTATUS GuTxSignature(GU_WORK *w)
 {
     u8 *meta = w->MetaCpu;
 
@@ -1062,7 +1062,7 @@ NTSTATUS GuPhaseSignature(GU_WORK *w)
 
 // Phase 9 · boot — u610:1113-1127. Starts the patched Booter on SEC2; the ROP
 // chain executes and FEAT_OVR_PLM flips to ~0 (wait_plm loop in falcon_hs).
-NTSTATUS GuPhaseBoot(GU_WORK *w)
+NTSTATUS GuTxBoot(GU_WORK *w)
 {
     const struct gpu_unlock_booter_hdr *h = &w->BooterHdr;
 
@@ -1092,7 +1092,7 @@ static int write_selector(GU_WORK *w, const char *name, u32 offset, u32 unlock)
     return value == unlock ? 0 : -EIO;
 }
 
-NTSTATUS GuPhaseSelector(GU_WORK *w)
+NTSTATUS GuTxSelector(GU_WORK *w)
 {
     NTSTATUS st = GuErrToNt(write_selector(w, "SS0", GU_FEAT_SS0_OFFSET, GU_SS0_UNLOCK));
     if (NT_SUCCESS(st)) {
@@ -1106,7 +1106,7 @@ NTSTATUS GuPhaseSelector(GU_WORK *w)
 }
 
 // Phase 12 · reset — u610:1333-1430. Cleanup FLR with full containment.
-NTSTATUS GuPhaseReset(GU_WORK *w)
+NTSTATUS GuTxReset(GU_WORK *w)
 {
     u32 ss0, ss1, plm, chip, cpuctl;
     u16 command, pending;
@@ -1185,7 +1185,7 @@ NTSTATUS GuPhaseReset(GU_WORK *w)
 }
 
 // Phase 13 · unwind — u610:526-608 + u610:1486-1492 retention rule.
-NTSTATUS GuPhaseUnwind(GU_WORK *w)
+NTSTATUS GuTxUnwind(GU_WORK *w)
 {
     u16 now, want;
     int ret = 0;

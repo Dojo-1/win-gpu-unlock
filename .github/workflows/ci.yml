@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: stage stand-in blob header
+        run: cp tests/host_harness/gu_fw_blobs.h driver/gu_fw_blobs.h
       - name: compile kernel branch against mock WDK
         run: |
           gcc -std=c11 -Wall -Wextra -Werror -D_GU_WINDOWS_KERNEL_WORKAROUND=0 \

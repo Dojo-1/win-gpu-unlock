@@ -25,23 +25,23 @@ static PDRIVER_OBJECT gDrvObj;
 static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
 {
     GU_PHASE_FN phases[GuPhaseCount] = {
-        [GuPhaseProbe]      = GuPhaseProbe,
-        [GuPhaseAssets]     = GuPhaseAssets,
-        [GuPhaseClaim]      = GuPhaseClaim,
-        [GuPhaseInduce]     = GuPhaseInduce,
-        [GuPhaseGfw]        = GuPhaseGfw,
-        [GuPhaseLayout]     = GuPhaseLayout,
-        [GuPhaseDma]        = GuPhaseDma,
-        [GuPhaseFwsec]      = GuPhaseFwsec,
-        [GuPhaseSignature]  = GuPhaseSignature,
-        [GuPhaseBoot]       = GuPhaseBoot,
-        [GuPhaseSignature2] = GuPhaseSignature,
-        [GuPhaseSelector]   = GuPhaseSelector,
-        [GuPhaseReset]      = GuPhaseReset,
-        [GuPhaseUnwind]     = GuPhaseUnwind,
+        [GuTxProbe]      = GuTxProbe,
+        [GuTxAssets]     = GuTxAssets,
+        [GuTxClaim]      = GuTxClaim,
+        [GuTxInduce]     = GuTxInduce,
+        [GuTxGfw]        = GuTxGfw,
+        [GuTxLayout]     = GuTxLayout,
+        [GuTxDma]        = GuTxDma,
+        [GuTxFwsec]      = GuTxFwsec,
+        [GuTxSignature]  = GuTxSignature,
+        [GuTxBoot]       = GuTxBoot,
+        [GuPhaseSignature2] = GuTxSignature,
+        [GuTxSelector]   = GuTxSelector,
+        [GuTxReset]      = GuTxReset,
+        [GuTxUnwind]     = GuTxUnwind,
     };
     NTSTATUS st = STATUS_SUCCESS;
-    ULONG p, last = min(phaseLimit, (ULONG)GuPhaseReset);
+    ULONG p, last = min(phaseLimit, (ULONG)GuTxReset);
 
     for (p = 0; p <= last; p++) {
         w->Out->PhaseReached = p;
@@ -52,12 +52,12 @@ static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
     }
     // Never leave the V67 signature published for a later stock boot (u610:1481).
     if (!NT_SUCCESS(st) && w->SignatureCalls == 1 && w->MetaCpu)
-        (void)GuPhaseSignature(w);
+        (void)GuTxSignature(w);
     // Unwind always runs (single descent geodesic), even after success.
-    w->Out->PhaseStatus[GuPhaseUnwind] = phases[GuPhaseUnwind](w);
-    w->Out->PhaseReached = GuPhaseUnwind;
-    if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuPhaseUnwind]))
-        st = w->Out->PhaseStatus[GuPhaseUnwind];
+    w->Out->PhaseStatus[GuTxUnwind] = phases[GuTxUnwind](w);
+    w->Out->PhaseReached = GuTxUnwind;
+    if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuTxUnwind]))
+        st = w->Out->PhaseStatus[GuTxUnwind];
     // Firmware still running: keep buffers until power off (u610:1486-1491).
     if (w->Retained && gDrvObj) {
         ObReferenceObject(gDrvObj); // pins the driver: unload now fails safely
@@ -81,7 +81,7 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
 
     // In-kernel policy gate G2: without explicit blackout confirmation only the
     // non-arming probe may run. Fail closed (PORT-MANIFOLD §4).
-    if (!(req.Flags & GU_F_CONFIRM_BLACKOUT) && req.PhaseLimit > GuPhaseProbe)
+    if (!(req.Flags & GU_F_CONFIRM_BLACKOUT) && req.PhaseLimit > GuTxProbe)
         return STATUS_ACCESS_DENIED;
 
     GU_WORK *w = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(GU_WORK), 'uGgU');
