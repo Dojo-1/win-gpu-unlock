@@ -110,7 +110,7 @@ int main(void)
     CHECK(gpu_unlock_gfw_assess(&s) == 0);                // complete
     s.plm = ~0u;
     CHECK(gpu_unlock_gfw_assess(&s) == -ENODEV);          // all-ones guard
-    CHECK(gpu_unlock_command_restore(0x6, 0x1) == 0x6);   // restore MEM|BME
+    CHECK(gpu_unlock_command_restore(0x6, 0x1) == 0x7);   // live non-mask bit 0x1 preserved, MEM|BME restored
 
     // radix plan + page: pure computation
     struct gpu_unlock_radix_plan plan;
