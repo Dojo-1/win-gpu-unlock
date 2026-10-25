@@ -15,7 +15,7 @@ extern unsigned char GuFwBootDesc[256];
 #define GuFwBootSize     ((unsigned long)24576)
 #define GuFwBootDescSize ((unsigned long)256)
 
-#define GuGspBinPath   L"C:\stand-in\GuRtGsp.bin"
+#define GuGspBinPath   L"C:\\stand-in\\GuRtGsp.bin"
 #define GuGspFileSize  ((unsigned long long)84277400)
 #define GuGspImageOffset ((unsigned long long)0x1000)
 #define GuGspImageSize   ((unsigned long long)72ull<<20)
