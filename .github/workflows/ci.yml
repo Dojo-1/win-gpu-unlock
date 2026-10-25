@@ -13,7 +13,7 @@ jobs:
         run: |
           gcc -std=c11 -Wall -Wextra -Werror -D_GU_WINDOWS_KERNEL_WORKAROUND=0 \
             -DGU_WINDOWS_KERNEL=1 \
-            -Idriver -Itests/host_harness \
+            -Itests/host_harness -Idriver \
             -o harness \
             tests/host_harness/harness.c \
             driver/gu_rt.c \

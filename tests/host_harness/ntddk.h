@@ -69,6 +69,8 @@ typedef struct _IO_STACK_LOCATION IO_STACK_LOCATION, *PIO_STACK_LOCATION;
 #define STATUS_PENDING               ((NTSTATUS)0x00000103)
 #define STATUS_NOT_FOUND             ((NTSTATUS)0xC0000225)
 
+#define NT_SUCCESS(s) ((NTSTATUS)(s) >= 0)
+
 // ---- debug print ----
 #define DPFLTR_DEFAULT_ID 0
 #define DPFLTR_INFO_LEVEL 3
@@ -98,8 +100,10 @@ void KeMemoryBarrier(void);
 // ---- HAL PCI bus data ----
 typedef enum _BUS_DATA_TYPE { PCIConfiguration = 4 } BUS_DATA_TYPE, *PBUS_DATA_TYPE;
 typedef union _PCI_SLOT_NUMBER {
-    ULONG AsULONG;
-    struct { ULONG bits0_4:5, DeviceNumber:5, FunctionNumber:3, bits13_31:16; } bits;
+    union {
+        ULONG AsULONG;
+        struct { ULONG bits0_4:5, DeviceNumber:5, FunctionNumber:3, bits13_31:16; } bits;
+    } u;
 } PCI_SLOT_NUMBER, *PPCI_SLOT_NUMBER;
 ULONG HalGetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
 ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, ULONG off, ULONG len);
@@ -111,7 +115,7 @@ ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, U
 #define IO_NO_INCREMENT 0
 struct _IO_STACK_LOCATION {
     union {
-        struct { PVOID Type3InputBuffer; ULONG DeviceIoControlCode; ULONG InputBufferLength; } DeviceIoControl;
+        struct { PVOID Type3InputBuffer; ULONG IoControlCode; ULONG InputBufferLength; } DeviceIoControl;
     } Parameters;
 };
 PIO_STACK_LOCATION IoGetCurrentIrpStackLocation(PIRP irp);
@@ -129,7 +133,8 @@ void ObReferenceObject(void *obj);
 void RtlInitUnicodeString(PUNICODE_STRING s, PCWSTR buf);
 typedef NTSTATUS (*DRIVER_DISPATCH)(PDEVICE_OBJECT, PIRP);
 typedef DRIVER_DISPATCH PDRIVER_DISPATCH;
-typedef void (*PDRIVER_UNLOAD)(PDRIVER_OBJECT);
+typedef void (*DRIVER_UNLOAD)(PDRIVER_OBJECT);
+typedef DRIVER_UNLOAD PDRIVER_UNLOAD;
 
 struct _DRIVER_OBJECT {
     PDRIVER_DISPATCH MajorFunction[28];
