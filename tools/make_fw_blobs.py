@@ -103,7 +103,7 @@ def main() -> int:
             return 1
     img_off, img_size = spans[".fwimage"]
     sig_off, sig_size = spans[".fwsignature_ga10x"]
-    parts.append(f'#define GuGspBinPath L"{GSP_PATH}"')
+    parts.append('#define GuGspBinPath L"' + GSP_PATH.replace(chr(92), chr(92) * 2) + '"')
     parts.append(f"// sha256 {GSP}: {hashlib.sha256(gsp.read_bytes()).hexdigest()}")
     parts.append(f"#define GuGspFileSize ((unsigned long long){gsp.stat().st_size})")
     parts.append(f"#define GuGspImageOffset ((unsigned long long){img_off})")
