@@ -116,8 +116,9 @@ Ported and present in this tree:
   orchestrator with detached watchdog.
 
 **Not done / not verified** (the honest remainder):
-- No compile yet: no WDK or C toolchain verified on P1 (`build.ps1` locates WDK;
-  syntax issues may remain — first `clang-cl` run is the arbiter).
+- Compile verification: DONE via CI (mock-WDK harness compiles the entire
+  kernel branch + portable modules with `-Werror`; smoke checks pass). A
+  real-WDK `build.ps1` compile has not been run on P1 yet.
 - Firmware assets not yet generated locally (upstream pinned pipeline must run).
 - Nothing has run on hardware. Gates G1 (signing) and G2 (first arming run)
   remain human decisions, per §4.
