@@ -19,6 +19,7 @@ jobs:
             -o harness \
             tests/host_harness/harness.c \
             driver/gu_rt.c \
+            driver/gu_gsp.c \
             driver/gu_transaction.c \
             driver/portable/prep_610.c \
             driver/portable/vbios_610.c \
