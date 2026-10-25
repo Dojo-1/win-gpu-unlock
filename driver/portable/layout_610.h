@@ -3,7 +3,6 @@
 #define GPU_UNLOCK_LAYOUT_610_H
 
 #include "gu_env.h"
-#endif
 
 struct gpu_unlock_layout_in {
 	u64 usable_fb;

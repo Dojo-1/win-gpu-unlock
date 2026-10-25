@@ -55,7 +55,7 @@ static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
         (void)GuTxSignature(w);
     // Unwind always runs (single descent geodesic), even after success.
     w->Out->PhaseStatus[GuPhaseUnwind] = phases[GuPhaseUnwind](w);
-    w->Out->PhaseReached = GuTxUnwind;
+    w->Out->PhaseReached = GuPhaseUnwind;
     if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuPhaseUnwind]))
         st = w->Out->PhaseStatus[GuPhaseUnwind];
     // Firmware still running: keep buffers until power off (u610:1486-1491).
@@ -81,7 +81,7 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
 
     // In-kernel policy gate G2: without explicit blackout confirmation only the
     // non-arming probe may run. Fail closed (PORT-MANIFOLD §4).
-    if (!(req.Flags & GU_F_CONFIRM_BLACKOUT) && req.PhaseLimit > GuTxProbe)
+    if (!(req.Flags & GU_F_CONFIRM_BLACKOUT) && req.PhaseLimit > GuPhaseProbe)
         return STATUS_ACCESS_DENIED;
 
     GU_WORK *w = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(GU_WORK), 0x55474755u);
