@@ -70,6 +70,8 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
 {
     ULONG inLen  = io->Parameters.DeviceIoControl.InputBufferLength;
     ULONG outLen = io->Parameters.DeviceIoControl.OutputBufferLength;
+    // breadcrumbs: stamp markers so early deaths are diagnosable off-hardware
+    if (outLen >= 4) ((ULONG *)Irp->AssociatedIrp.SystemBuffer)[0] = 0xDEAD0000u | (inLen & 0xFF);
     if (inLen < sizeof(GU_RUN_IN) || outLen < sizeof(GU_RUN_OUT))
         return STATUS_BUFFER_TOO_SMALL;
 
@@ -93,10 +95,11 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
     w->Out = out;
 
     NTSTATUS st = GuRunTower(w, req.PhaseLimit);
+    out->Diag[7] = (ULONG)st; // verdict travels in-band: copyback happens on error status
     if (!w->Retained) // retained work stays leaked-by-design until power off
         ExFreePoolWithTag(w, 0x55474755u);
     Irp->IoStatus.Information = sizeof(*out);
-    return st;
+    return STATUS_SUCCESS; // client reads PhaseReached/PhaseStatus/Diag[7]
 }
 
 // ================= L4 · boilerplate ============================================

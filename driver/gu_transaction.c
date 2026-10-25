@@ -495,6 +495,38 @@ static void free_coherent(GU_WORK *w) // u610:489
     w->BootCpu = w->FwsecCpu = w->BooterCpu = w->V67Cpu = w->StockCpu = w->MetaCpu = NULL;
 }
 
+
+// Capability walk. In D3hot only ID/PMCSR reads are guaranteed; the chain can
+// read as garbage. Linux caches pm_cap from enumeration; we cache from probe,
+// which the orchestrator runs while the card is still enabled (D0).
+static LONG gCachedPciCap = -1, gCachedPmCap = -1;
+
+static void GuWalkCaps(GU_WORK *w)
+{
+    u16 capPtr = 0;
+    ULONG off, hdr;
+    w->PciCapOff = -1; w->PmCapOff = -1;
+    if (GuCfgWordR(w, 0x34, &capPtr, FALSE))
+        return;
+    off = capPtr & 0xFC;
+    for (ULONG i = 0; i < 48 && off >= 0x40 && off <= 0xFC; i++) {
+        if (GuCfgDwordR(w, off, &hdr, FALSE))
+            return;
+        if ((hdr & 0xFF) == 0x10 && w->PciCapOff < 0)
+            w->PciCapOff = (LONG)off;
+        if ((hdr & 0xFF) == 0x01 && w->PmCapOff < 0)
+            w->PmCapOff = (LONG)off;
+        ULONG next = (hdr >> 8) & 0xFC;
+        if (!next)
+            break;
+        off = next;
+    }
+    if (w->PciCapOff >= 0)
+        gCachedPciCap = w->PciCapOff;
+    if (w->PmCapOff >= 0)
+        gCachedPmCap = w->PmCapOff;
+}
+
 // ================= phases =====================================================
 
 // Phase 0 · probe — Windows-only, non-arming. Answers unknown E1.
@@ -543,6 +575,9 @@ NTSTATUS GuTxProbe(GU_WORK *w)
     slot.u.bits.DeviceNumber = w->Device; slot.u.bits.FunctionNumber = w->Fn;
     (void)HalGetBusDataByOffset(PCIConfiguration, w->Bus, slot.u.AsULONG, &pmcsr, 0x54, 2);
     w->Out->Diag[3] = pmcsr;
+    GuWalkCaps(w);
+    w->Out->Diag[4] = (ULONG)w->PciCapOff;
+    w->Out->Diag[5] = (ULONG)w->PmCapOff;
     GU_NOTE("probe: id=%#x subsys=%#x bar0=%#llx chip=%#x pm=%u\n",
             id, subsys, (unsigned long long)pa.QuadPart, chip, pmcsr);
     return STATUS_SUCCESS;
@@ -614,31 +649,19 @@ NTSTATUS GuTxClaim(GU_WORK *w)
     u16 command, pmcsr;
     u32 cap;
     int ret;
-    ULONG off, hdr;
 
-    // capability walk (Linux pci_find_capability)
-    w->PciCapOff = -1; w->PmCapOff = -1;
-    {
-        u16 capPtr = 0;
-        if (GuCfgWordR(w, 0x34, &capPtr, FALSE))
-            return GuErrToNt(-ENODEV);
-        off = capPtr & 0xFC;
-    }
-    for (ULONG i = 0; i < 48 && off >= 0x40; i++) {
-        if (GuCfgDwordR(w, off, &hdr, FALSE))
-            return GuErrToNt(-ENODEV);
-        if ((hdr & 0xFF) == 0x10 && w->PciCapOff < 0)
-            w->PciCapOff = (LONG)off;
-        if ((hdr & 0xFF) == 0x01 && w->PmCapOff < 0)
-            w->PmCapOff = (LONG)off;
-        ULONG next = (hdr >> 8) & 0xFC;
-        if (!next)
-            break;
-        off = next;
-    }
-    if (w->PciCapOff < 0)
+    GuWalkCaps(w);
+    if (w->PciCapOff < 0 && gCachedPciCap >= 0)
+        w->PciCapOff = gCachedPciCap;
+    if (w->PmCapOff < 0 && gCachedPmCap >= 0)
+        w->PmCapOff = gCachedPmCap;
+    if (w->PciCapOff < 0) {
+        w->Out->Diag[6] = 1; // no PCIe capability found
         return GuErrToNt(-EOPNOTSUPP);
+    }
 
+    w->Out->Diag[4] = (ULONG)w->PciCapOff; // instrumentation
+    w->Out->Diag[5] = (ULONG)w->PmCapOff;
     // D0 induction: Windows PnP disable may leave D3hot. Linux runs pre-driver
     // in D0 and refuses otherwise; on Windows we must ask for D0 ourselves.
     if (w->PmCapOff >= 0) {
@@ -653,14 +676,16 @@ NTSTATUS GuTxClaim(GU_WORK *w)
             KeDelayExecutionThread(KernelMode, FALSE, &t);
             if (GuCfgWordR(w, PCI_PM_CTRL, &pmcsr, TRUE) ||
                 (pmcsr & PCI_PM_CTRL_STATE_MASK) != 0)
-                return GuErrToNt(-EOPNOTSUPP); // slot keeps it powered down: fail closed
+                { w->Out->Diag[6] = 2; w->Out->Diag[5] |= 0x10000u | ((ULONG)pmcsr << 8); return GuErrToNt(-EOPNOTSUPP); } // D0 refused; Diag5 |= pmcsr
         }
     }
 
     // FLR capability gate (u610:818-822)
     ret = GuCfgDwordR(w, PCI_EXP_DEVCAP, &cap, TRUE);
-    if (ret || !(cap & PCI_EXP_DEVCAP_FLR))
+    if (ret || !(cap & PCI_EXP_DEVCAP_FLR)) {
+        w->Out->Diag[6] = 3; // FLR capability missing
         return GuErrToNt(-EOPNOTSUPP);
+    }
 
     // command snapshot + firmware BME clear (u610:823-841)
     ret = GuCfgWordR(w, PCI_COMMAND, &command, FALSE);

@@ -60,6 +60,22 @@ $wd = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList @(
     "exit")
 
 try {
+    # warm call: PL=0 while the card is still ENABLED (D0) — the driver caches
+    # the PCI capability offsets here, because the chain reads as garbage once
+    # PnP-disable puts the card in D3hot (only ID/PMCSR are guaranteed there).
+    {
+        $win  = [BitConverter]::GetBytes([uint32]24) + [BitConverter]::GetBytes([uint32]$bus) +
+                [BitConverter]::GetBytes([uint32]$slot) + [BitConverter]::GetBytes([uint32]$fn) +
+                [BitConverter]::GetBytes([uint32]0) + [BitConverter]::GetBytes([uint32]0)
+        $wout = New-Object byte[] 108
+        $wret = 0
+        $wh = [GuIo]::CreateFile("\\.\GuRtUnlock", [uint32]3221225472, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+        if ($wh -ne -1 -and $wh -ne [IntPtr]::Zero) {
+            [void][GuIo]::DeviceIoControl($wh, 0x00222004, $win, $win.Length, $wout, $wout.Length, [ref]$wret, [IntPtr]::Zero)
+            [void][GuIo]::CloseHandle($wh)
+            Write-Host ("warm   : caps cached, pcie=0x{0:X} pm=0x{1:X}" -f [BitConverter]::ToUInt32($wout,80), [BitConverter]::ToUInt32($wout,84))
+        }
+    }
     Write-Host "disable: detaching nvlddmkm (console may blank NOW if this is the only GPU)"
     pnputil /disable-device $full | Out-Null
 
@@ -75,10 +91,14 @@ try {
     $out = New-Object byte[] 108
     $ret = 0
     $ok = [GuIo]::DeviceIoControl($h, 0x00222004, $in, $in.Length, $out, $out.Length, [ref]$ret, [IntPtr]::Zero)
+    $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()   # capture BEFORE CloseHandle resets it
     [GuIo]::CloseHandle($h) | Out-Null
-    if (-not $ok) { throw "IOCTL failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
     $reached = [BitConverter]::ToUInt32($out, 4)
-    Write-Host "tower  : phase reached $reached, diag id=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,64))) bar0=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,68))) chip=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,72))) pm=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,76)))"
+    Write-Host "tower  : phase reached $reached, in=$([BitConverter]::ToString($in[0..15])), diag id=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,64))) bar0=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,68))) chip=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,72))) pm=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,76)))"
+    $ph = 0..13 | ForEach-Object { '0x{0:X8}' -f [BitConverter]::ToUInt32($out, 8 + $_*4) }
+    Write-Host "phases: $($ph -join ' ')"
+    Write-Host "raw-out: $([BitConverter]::ToString($out))"
+    if (-not $ok) { Write-Host "IOCTL win32 error: $err" }
 }
 finally {
     Write-Host "enable : rebinding driver (watchdog covers us at +$WatchdogSec s)"
