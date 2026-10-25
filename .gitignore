@@ -7,3 +7,4 @@ build/
 *.cer
 driver/gu_fw_blobs.h.generated
 firmware-assets/
+benchmark/gemm_bench.exe

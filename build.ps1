@@ -6,12 +6,12 @@
 #   - driver/gu_fw_blobs.h generated: python tools\make_fw_blobs.py <asset_dir> driver\gu_fw_blobs.h
 #   - GSP image deployed: copy gsp_ga10x.bin -> C:\Windows\System32\drivers\GuRtGsp.bin (admin)
 # Usage: .\build.ps1 [-NoSign]
-param([switch]$NoSign)
+param([switch]$NoSign, [string]$Out = "build")
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $drv  = Join-Path $root 'driver'
-$out  = Join-Path $root 'build'
+$out  = Join-Path $root $Out
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
 if (-not (Test-Path (Join-Path $drv 'gu_fw_blobs.h'))) {
