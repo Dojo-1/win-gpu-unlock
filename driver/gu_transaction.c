@@ -17,7 +17,7 @@
 #include "gu_fw_blobs.h"
 #include <wdm.h>
 
-#define GU_TAG 'uGgU'
+#define GU_TAG 0x55474755u
 
 const struct GU_FALCON_ENG GuGspEng  = { .base = 0x00110000, .fbif = 0x00110600, .falcon2 = 0x00111000 }; // u610:923
 const struct GU_FALCON_ENG GuSec2Eng = { .base = 0x00840000, .fbif = 0x00840600, .falcon2 = 0x00841000 }; // u610:1115

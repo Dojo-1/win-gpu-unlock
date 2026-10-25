@@ -115,11 +115,11 @@ ULONG HalSetBusDataByOffset(BUS_DATA_TYPE t, ULONG bus, ULONG slot, void *buf, U
 #define IO_NO_INCREMENT 0
 struct _IO_STACK_LOCATION {
     union {
-        struct { PVOID Type3InputBuffer; ULONG IoControlCode; ULONG InputBufferLength; } DeviceIoControl;
+        struct { PVOID Type3InputBuffer; ULONG IoControlCode; ULONG InputBufferLength; ULONG OutputBufferLength; } DeviceIoControl;
     } Parameters;
 };
 PIO_STACK_LOCATION IoGetCurrentIrpStackLocation(PIRP irp);
-struct _IRP { IO_STATUS_BLOCK IoStatus; PVOID AssociatedIrpSystemBuffer; };
+struct _IRP { IO_STATUS_BLOCK IoStatus; union { PVOID SystemBuffer; } AssociatedIrp; };
 void IoCompleteRequest(PIRP irp, char prioboost);
 
 // ---- device / driver ----

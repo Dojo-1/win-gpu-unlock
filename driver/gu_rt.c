@@ -25,23 +25,23 @@ static PDRIVER_OBJECT gDrvObj;
 static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
 {
     GU_PHASE_FN phases[GuPhaseCount] = {
-        [GuTxProbe]      = GuTxProbe,
-        [GuTxAssets]     = GuTxAssets,
-        [GuTxClaim]      = GuTxClaim,
-        [GuTxInduce]     = GuTxInduce,
-        [GuTxGfw]        = GuTxGfw,
-        [GuTxLayout]     = GuTxLayout,
-        [GuTxDma]        = GuTxDma,
-        [GuTxFwsec]      = GuTxFwsec,
-        [GuTxSignature]  = GuTxSignature,
-        [GuTxBoot]       = GuTxBoot,
+        [GuPhaseProbe]      = GuTxProbe,
+        [GuPhaseAssets]     = GuTxAssets,
+        [GuPhaseClaim]      = GuTxClaim,
+        [GuPhaseInduce]     = GuTxInduce,
+        [GuPhaseGfw]        = GuTxGfw,
+        [GuPhaseLayout]     = GuTxLayout,
+        [GuPhaseDma]        = GuTxDma,
+        [GuPhaseFwsec]      = GuTxFwsec,
+        [GuPhaseSignature]  = GuTxSignature,
+        [GuPhaseBoot]       = GuTxBoot,
         [GuPhaseSignature2] = GuTxSignature,
-        [GuTxSelector]   = GuTxSelector,
-        [GuTxReset]      = GuTxReset,
-        [GuTxUnwind]     = GuTxUnwind,
+        [GuPhaseSelector]   = GuTxSelector,
+        [GuPhaseReset]      = GuTxReset,
+        [GuPhaseUnwind]     = GuTxUnwind,
     };
     NTSTATUS st = STATUS_SUCCESS;
-    ULONG p, last = min(phaseLimit, (ULONG)GuTxReset);
+    ULONG p, last = min(phaseLimit, (ULONG)GuPhaseReset);
 
     for (p = 0; p <= last; p++) {
         w->Out->PhaseReached = p;
@@ -54,10 +54,10 @@ static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
     if (!NT_SUCCESS(st) && w->SignatureCalls == 1 && w->MetaCpu)
         (void)GuTxSignature(w);
     // Unwind always runs (single descent geodesic), even after success.
-    w->Out->PhaseStatus[GuTxUnwind] = phases[GuTxUnwind](w);
+    w->Out->PhaseStatus[GuPhaseUnwind] = phases[GuPhaseUnwind](w);
     w->Out->PhaseReached = GuTxUnwind;
-    if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuTxUnwind]))
-        st = w->Out->PhaseStatus[GuTxUnwind];
+    if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuPhaseUnwind]))
+        st = w->Out->PhaseStatus[GuPhaseUnwind];
     // Firmware still running: keep buffers until power off (u610:1486-1491).
     if (w->Retained && gDrvObj) {
         ObReferenceObject(gDrvObj); // pins the driver: unload now fails safely
@@ -84,7 +84,7 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
     if (!(req.Flags & GU_F_CONFIRM_BLACKOUT) && req.PhaseLimit > GuTxProbe)
         return STATUS_ACCESS_DENIED;
 
-    GU_WORK *w = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(GU_WORK), 'uGgU');
+    GU_WORK *w = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(GU_WORK), 0x55474755u);
     if (!w)
         return STATUS_INSUFFICIENT_RESOURCES;
     RtlZeroMemory(w, sizeof(*w));
@@ -94,7 +94,7 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
 
     NTSTATUS st = GuRunTower(w, req.PhaseLimit);
     if (!w->Retained) // retained work stays leaked-by-design until power off
-        ExFreePoolWithTag(w, 'uGgU');
+        ExFreePoolWithTag(w, 0x55474755u);
     Irp->IoStatus.Information = sizeof(*out);
     return st;
 }
