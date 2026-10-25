@@ -101,34 +101,6 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
 
 // ================= L4 · boilerplate ============================================
 
-static DRIVER_DISPATCH GuCreateClose, GuDeviceControl;
-static DRIVER_UNLOAD GuUnload;
-
-NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
-{
-    UNREFERENCED_PARAMETER(reg);
-    UNICODE_STRING name;
-    PDEVICE_OBJECT dev;
-    NTSTATUS st;
-
-    gDrvObj = drv;
-    RtlInitUnicodeString(&name, L"\\Device\\GuRtUnlock");
-    st = IoCreateDevice(drv, 0, &name, FILE_DEVICE_UNKNOWN,
-                        FILE_DEVICE_SECURE_OPEN, TRUE, &dev);
-    if (!NT_SUCCESS(st))
-        return st;
-    UNICODE_STRING link;
-    RtlInitUnicodeString(&link, L"\\DosDevices\\GuRtUnlock");
-    IoCreateSymbolicLink(&link, &name);
-
-    drv->MajorFunction[IRP_MJ_CREATE]         = GuCreateClose;
-    drv->MajorFunction[IRP_MJ_CLOSE]          = GuCreateClose;
-    drv->MajorFunction[IRP_MJ_DEVICE_CONTROL] = GuDeviceControl;
-    drv->DriverUnload = GuUnload;
-    gControlDev = dev;
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS GuCreateClose(PDEVICE_OBJECT d, PIRP i)
 {
     UNREFERENCED_PARAMETER(d);
@@ -169,4 +141,29 @@ static void GuUnload(PDRIVER_OBJECT drv)
     RtlInitUnicodeString(&link, L"\\DosDevices\\GuRtUnlock");
     IoDeleteSymbolicLink(&link);
     IoDeleteDevice(gControlDev);
+}
+
+NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
+{
+    UNREFERENCED_PARAMETER(reg);
+    UNICODE_STRING name;
+    PDEVICE_OBJECT dev;
+    NTSTATUS st;
+
+    gDrvObj = drv;
+    RtlInitUnicodeString(&name, L"\\Device\\GuRtUnlock");
+    st = IoCreateDevice(drv, 0, &name, FILE_DEVICE_UNKNOWN,
+                        FILE_DEVICE_SECURE_OPEN, TRUE, &dev);
+    if (!NT_SUCCESS(st))
+        return st;
+    UNICODE_STRING link;
+    RtlInitUnicodeString(&link, L"\\DosDevices\\GuRtUnlock");
+    IoCreateSymbolicLink(&link, &name);
+
+    drv->MajorFunction[IRP_MJ_CREATE]         = GuCreateClose;
+    drv->MajorFunction[IRP_MJ_CLOSE]          = GuCreateClose;
+    drv->MajorFunction[IRP_MJ_DEVICE_CONTROL] = GuDeviceControl;
+    drv->DriverUnload = GuUnload;
+    gControlDev = dev;
+    return STATUS_SUCCESS;
 }
