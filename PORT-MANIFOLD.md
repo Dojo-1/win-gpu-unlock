@@ -144,12 +144,12 @@ Ported and present in this tree:
 - Firmware embedding pipeline (`tools/make_fw_blobs.py`), build script, L5
   orchestrator with detached watchdog.
 
-**Not done / not verified** (the honest remainder):
-- Compile verification: DONE via CI (mock-WDK harness compiles the entire
-  kernel branch + portable modules with `-Werror`; smoke checks pass). A
-  real-WDK `build.ps1` compile has not been run on P1 yet.
-- Firmware assets not yet generated locally (upstream pinned pipeline must run).
-- Nothing has run on hardware. Gates G1 (signing) and G2 (first arming run)
-  remain human decisions, per §4.
-- The `induce` phase (FLR-class window reopening) is evidence-backed but
-  unproven on any machine — E2 stands.
+**Ledger superseded by events (2026-10-26) — final state:**
+- Real-WDK compile: done (VS2022 + WDK 26100, both driver targets).
+- Firmware assets: generated via the upstream pinned pipeline and deployed.
+- Hardware execution: DONE — armed boot ran the full tower to phase 13
+  (selector + containment verified); benchmark +17.7% (docs/RESULTS.md).
+- E2 closed: the FLR-induction runtime route was proven dead (D3cold, TDR
+  collision — §5b); the winning route was the in-stack start-IRP hook.
+- Earlier caveats about G1/G2 human gating: honored throughout Track 2 —
+  every armed step required an explicit user "go" and a UAC approval.

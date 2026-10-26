@@ -7,10 +7,11 @@ no reboot, no vBIOS flash, no driver replacement. GPL-2.0-only, derived from the
 upstream Linux kernel module; `u610:NNN` anchors in the sources map every
 translated block back to `kernel/gpu_unlock/unlock_610.c`.
 
-**Status: code-complete, CI-compiled, hardware-unverified.** The FLR-induction
-route (`induce` phase) is evidence-backed (upstream's own reset phase FLRs and
-re-waits ROM GFW; warm-reboot unlocks are reported) but has not been executed on
-any machine. Read `PORT-MANIFOLD.md` §5 (unknowns) and §4 (policy gates) first.
+**Status: EXECUTED ON HARDWARE (2026-10-26).** The full unlock transaction ran
+at boot via the generation-2 start-IRP filter (`GuFltUnlock`): every phase to
+selector-verification and post-FLR containment succeeded. Benchmark: FP16
+35.61 / BF16 35.77 TFLOPS (+17.7% at the 200W board limit) vs the locked
+30.24/30.41 baseline. See `docs/RESULTS.md` and `docs/TRACK2-CHARTER.md`.
 
 ## How it works (one paragraph)
 
