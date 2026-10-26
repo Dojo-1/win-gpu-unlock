@@ -183,6 +183,12 @@ typedef struct _KEY_VALUE_PARTIAL_INFORMATION { ULONG Type; ULONG DataLength; UL
 #define EXCEPTION_EXECUTE_HANDLER 1
 NTSTATUS ZwQueryValueKey(void *h, void *val, int cls, void *info, ULONG len, ULONG *retlen);
 NTSTATUS ZwFlushKey(void *h);
+// gu_rt.c watch/breadcrumb surface (definitions in harness.c; GCC -Werror
+// requires the declarations here that MSVC forgave as implicit)
+NTSTATUS ZwCreateKey(void **h, ACCESS_MASK m, void *oa, ULONG opt, void *cls, ULONG disp, ULONG *disposition);
+void PsTerminateSystemThread(NTSTATUS st);
+NTSTATUS PsCreateSystemThread(void **h, ULONG a, void *oa, void *p, void *c, void *start, void *ctx);
+LONG InterlockedCompareExchange(volatile LONG *d, LONG e, LONG c);
 
 // ---- device / driver ----
 #define FILE_DEVICE_UNKNOWN 0x00000022
