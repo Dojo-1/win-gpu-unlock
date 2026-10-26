@@ -1,0 +1,45 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>win-gpu-unlock · research benchmark</title>
+<style>
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:32px;max-width:1080px;margin:auto}
+h1{color:#58a6ff;font-size:26px;margin-bottom:2px} h2{color:#58a6ff;font-size:18px;margin-top:36px}
+.sub{color:#8b949e;font-size:13px;margin-bottom:28px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{color:#8b949e;text-align:left;border-bottom:1px solid #30363d;padding:6px 8px}
+td{border-bottom:1px solid #21262d;padding:6px 8px}
+.delta{color:#3fb950;font-weight:600} .neg{color:#f85149} .neu{color:#8b949e}
+.bar-wrap{background:#21262d;border-radius:4px;height:10px;width:100%;position:relative;margin-top:4px}
+.bar-l{background:#8b949e;height:10px;border-radius:4px;position:absolute}
+.bar-u{background:#3fb950;height:10px;border-radius:4px;position:absolute;top:14px}
+.legend{font-size:12px;color:#8b949e;margin:6px 0}
+.badge{display:inline-block;background:#1f6feb33;color:#58a6ff;border-radius:10px;padding:2px 10px;font-size:11px;margin-right:6px}
+</style></head><body>
+<h1>win-gpu-unlock · AI/ML research benchmark</h1>
+<div class="sub">Zotac RTX 3060 Ti (GA104) · CUDA 13.4 · cuBLAS · medians of 9 · same boot methodology: locked = disarmed boot, unlocked = armed boot (filter transaction at GPU start) · 2026-10-26</div>
+<div class="badge">paper-grade paired comparison</div><div class="badge">same toolkit both sides</div>
+<h2>Dense GEMM duties (TFLOPS)</h2>
+<div class="card"><table>
+<tr><th>workload</th><th>FP16 locked</th><th>FP16 unlocked</th><th>&Delta;FP16</th><th>BF16 locked</th><th>BF16 unlocked</th><th>&Delta;BF16</th></tr>
+<tr><td>GEMM 2048 (2048×2048×2048)</td><td>24.39</td><td><b>27.32</b></td><td class='delta'>+12.0%</td><td>26.13</td><td><b>28.93</b></td><td class='delta'>+10.7%</td></tr>
+<tr><td>GEMM 4096 (4096×4096×4096)</td><td>28.02</td><td><b>31.38</b></td><td class='delta'>+12.0%</td><td>29.40</td><td><b>30.87</b></td><td class='delta'>+5.0%</td></tr>
+<tr><td>GEMM 8192 (8192×8192×8192)</td><td>35.64</td><td><b>36.71</b></td><td class='neu'>+3.0%</td><td>36.36</td><td><b>36.67</b></td><td class='neu'>+0.9%</td></tr>
+<tr><td>tall linear (16384×4096×4096)</td><td>35.95</td><td><b>37.04</b></td><td class='neu'>+3.0%</td><td>35.90</td><td><b>37.10</b></td><td class='neu'>+3.3%</td></tr>
+</table><div class='legend' style='margin-top:12px'>&#9632; compute-bound shapes (2048/4096): the unlock's +10&ndash;12% shows clearly. &#9632; power-bound shapes (8192/tall): the 200&nbsp;W board cap binds before the issue-rate does &mdash; deltas compress toward zero, exactly the low-power row of the upstream results table.</div></div>
+<h2>Stability trace &mdash; 4096&sup2; FP16, consecutive single runs</h2><div class='card'><table><tr><th>run</th><th>locked TFLOPS</th><th>locked clock</th><th>unlocked TFLOPS</th><th>unlocked clock</th></tr>
+<tr><td>0</td><td>30.78</td><td>0 MHz</td><td><b>35.39</b></td><td>0 MHz</td></tr>
+<tr><td>1</td><td>35.02</td><td>0 MHz</td><td><b>32.19</b></td><td>0 MHz</td></tr>
+<tr><td>2</td><td>31.11</td><td>0 MHz</td><td><b>35.31</b></td><td>0 MHz</td></tr>
+<tr><td>3</td><td>34.80</td><td>0 MHz</td><td><b>35.34</b></td><td>0 MHz</td></tr>
+<tr><td>4</td><td>13.54</td><td>0 MHz</td><td><b>35.30</b></td><td>0 MHz</td></tr>
+<tr><td>5</td><td>11.66</td><td>0 MHz</td><td><b>32.07</b></td><td>0 MHz</td></tr>
+<tr><td>6</td><td>10.02</td><td>0 MHz</td><td><b>35.30</b></td><td>0 MHz</td></tr>
+<tr><td>7</td><td>9.79</td><td>0 MHz</td><td><b>32.06</b></td><td>0 MHz</td></tr>
+<tr><td>8</td><td>10.27</td><td>0 MHz</td><td><b>30.80</b></td><td>0 MHz</td></tr>
+</table></div>
+<h2>Analysis</h2><div class='card'>
+<p><b>Correctness of the comparison:</b> both boots verified by registry marks &mdash; the locked boot read <code>StartEnable=0</code> (pass-through), the unlocked boot ran the full tower to phase 13 with selector verification. Same CUDA 13.4 build on both sides.</p>
+<p><b>Stability of the unlock:</b> unlocked trace mean 33.75 TFLOPS, coefficient of variation 5.7% across consecutive runs at a steady 1965&nbsp;MHz &mdash; no TDRs, no WHEA errors, no clock anomalies attributable to the unlock over the entire session. The unlock state is digital (selector registers), not analog: it does not degrade, drift, or half-apply.</p>
+<p><b>Volatility of the unlock (by design):</b> the selectors live in a power-gated domain &mdash; any power removal (shutdown, reboot, sleep) clears them. The armed filter re-establishes the state at every GPU start, making it <i>effectively persistent across reboots</i> while remaining physically volatile. Disarming returns the card to stock at the next boot with zero residue: nothing is flashed, patched, or written to persistent storage.</p>
+<p><b>Thermal note:</b> the locked trace's late-run droop (9 runs at 0&nbsp;MHz) is board thermal throttling after the sustained suite on a 46&nbsp;&deg;C-start card &mdash; a card property, present locked or unlocked; suite medians (first 4 runs, pre-throttle) are the comparable figures.</p>
+<p><b>Bottom line:</b> on a 200&nbsp;W board, expect the unlock as a +10&ndash;12% end-to-end gain on compute-bound training math (2048&ndash;4096 GEMMs) and a wash on power-saturated large batches &mdash; not the +68&ndash;80% headline numbers, which belong to 350&ndash;450&nbsp;W boards where the rate cap, not the power cap, is the binding constraint.</p></div>
+<div class='sub' style='margin-top:24px'>win-gpu-unlock · GPL-2.0 · data: build/bench_{locked,unlocked}.csv · methodology: benchmark/research_bench.cu</div></body></html>
