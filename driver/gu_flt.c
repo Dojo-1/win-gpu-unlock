@@ -1,18 +1,31 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * gpu-unlock-rt · start-IRP lower-filter driver (GuFltUnlock).
+ * gpu-unlock-rt · start-IRP lower filter, generation 2 (GuFltUnlock).
  *
- * The in-stack serialization hook: attaches below nvlddmkm on the 3060 Ti.
- * On IRP_MN_START_DEVICE it passes the IRP down (pci.sys brings the card D0
- * and assigns resources), then HOLDS the IRP pending while the full unlock
- * transaction runs in a worker thread - the same serialization Linux gets
- * from initramfs load order. nvlddmkm's start (and its GSP boot) waits until
- * the tower completes, then binds onto an unlocked card. Fail-open by design:
- * any refusal (wrong identity, WPR2 up, EALREADY unlocked, registry gate off)
- * completes the start untouched and Windows boots normally.
+ * Rebuilt after the 2026-10-26 MULTIPLE_IRP_COMPLETE_REQUESTS boot-loop
+ * post-mortem. Governing principle: IRP single-completion BY CONSTRUCTION -
+ * exactly one code path ever calls IoCompleteRequest, reachable on every IRP
+ * fate, with no thread handoffs. The previous async-hold pattern (completion
+ * routine + worker + IoMarkIrpPending) is banned.
  *
- * Enabled only via Parameters\Enable = 1 (REG_DWORD); absent/0 = pure
- * pass-through filter. Results land in Parameters\LastRun* values.
+ * Safeguards (see docs/TRACK2-CHARTER.md):
+ *   - crash-count self-disarm: DriverEntry's FIRST statement increments
+ *     BootCount; >= 3 -> permanent pass-through until manual reset. A boot
+ *     loop is structurally impossible: worst case is three crashes, then
+ *     normal boots forever.
+ *   - synchronous-wait start hold: the transaction runs in the dispatch
+ *     thread at PASSIVE; the lower completion signals an event and returns
+ *     MORE_PROCESSING unconditionally - we own completion from that instant.
+ *   - hardware guard: only the 3060 Ti is ever acted on; every other display
+ *     device gets pure pass-through.
+ *   - registry gate Enable=1 required for any intervention; all refusals
+ *     fail open into a normal boot.
+ *
+ * The event wait is deliberately INDEFINITE: the only party below us is
+ * pci.sys completing a device start, which is as reliable as the kernel
+ * itself; a timed-out wait that completed the IRP early would re-create the
+ * double-completion edge this rewrite exists to remove. The transaction's own
+ * internal budgets (a few tens of seconds worst case) bound the hold.
  */
 #include <wdm.h>
 #include "gu_rt.h"
@@ -20,58 +33,71 @@
 #include "gu_fw_blobs.h"
 
 typedef struct _GU_FLT_EXT {
-    PDEVICE_OBJECT Next;          // top of stack below us
+    PDEVICE_OBJECT Next;
     PDEVICE_OBJECT Self;
-    struct _IO_WORKITEM *WorkItem; // opaque fwd: IO_WORKITEM typedef not visible here
-    PIRP           HeldIrp;       // start IRP held during the transaction
     ULONG          Bus, Dev, Fn;
-    BOOLEAN        IsTarget;      // hardware-guard: only the 3060 Ti is acted on
+    BOOLEAN        IsTarget;
 } GU_FLT_EXT;
 
-extern void (*GuRetainHook)(void);
-static void GuFltRetain(void) { /* nothing to pin: filter lifetime = stack lifetime */ }
+static BOOLEAN gPassive = FALSE;   // crash-counter tripped: never intervene
 
-// ---- result breadcrumb (safe literal path, no formatting) -----------------
-static void GuFltMark(const wchar_t *name, ULONG value)
+extern void (*GuRetainHook)(void);
+static void GuFltRetain(void) { /* filter lifetime = stack lifetime */ }
+
+// ---- registry helpers (literal paths only; the swprintf class is banned) ----
+static NTSTATUS GuFltOpenParams(HANDLE *h, ACCESS_MASK mask)
 {
-    UNICODE_STRING key, val;
-    HANDLE h;
+    UNICODE_STRING key;
     OBJECT_ATTRIBUTES oa;
     RtlInitUnicodeString(&key,
         L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\GuFltUnlock\\Parameters");
     InitializeObjectAttributes(&oa, &key, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    if (!NT_SUCCESS(ZwCreateKey(&h, KEY_SET_VALUE, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, NULL)))
+    return ZwCreateKey(h, mask, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
+}
+
+static void GuFltMark(const wchar_t *name, ULONG value)
+{
+    UNICODE_STRING val;
+    HANDLE h;
+    if (!NT_SUCCESS(GuFltOpenParams(&h, KEY_SET_VALUE)))
         return;
     RtlInitUnicodeString(&val, name);
     ZwSetValueKey(h, &val, 0, REG_DWORD, &value, sizeof(ULONG));
+    // durability (review F3.1): the crash-counter write must survive a
+    // bugcheck seconds later - lazy hive flush would lose it and re-enable
+    // the boot loop this counter exists to break
+    ZwFlushKey(h);
     ZwClose(h);
 }
 
-static ULONG GuFltEnableRead(void)
+static ULONG GuFltReadDword(const wchar_t *name)
 {
-    UNICODE_STRING key, val;
+    ULONG result = 0, len = 0;
     HANDLE h;
-    OBJECT_ATTRIBUTES oa;
-    ULONG enable = 0, result = 0;
-    ULONG len = sizeof(ULONG);
-    KEY_VALUE_PARTIAL_INFORMATION *kv;
-    RtlInitUnicodeString(&key,
-        L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\GuFltUnlock\\Parameters");
-    InitializeObjectAttributes(&oa, &key, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-    if (!NT_SUCCESS(ZwOpenKey(&h, KEY_QUERY_VALUE, &oa)))
+    UNICODE_STRING val;
+    UCHAR buf[sizeof(KEY_VALUE_PARTIAL_INFORMATION) + sizeof(ULONG)];
+    PKEY_VALUE_PARTIAL_INFORMATION kv = (PKEY_VALUE_PARTIAL_INFORMATION)buf;
+    if (!NT_SUCCESS(GuFltOpenParams(&h, KEY_QUERY_VALUE)))
         return 0;
-    RtlInitUnicodeString(&val, L"Enable");
-    kv = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(KEY_VALUE_PARTIAL_INFORMATION) + sizeof(ULONG), 'uGgF');
-    if (kv) {
-        if (NT_SUCCESS(ZwQueryValueKey(h, &val, KeyValuePartialInformation, kv,
-                                       sizeof(KEY_VALUE_PARTIAL_INFORMATION) + sizeof(ULONG), &len)) &&
-            kv->Type == REG_DWORD && kv->DataLength == sizeof(ULONG))
-            result = *(ULONG *)kv->Data;
-        ExFreePool(kv);
-    }
+    RtlInitUnicodeString(&val, name);
+    if (NT_SUCCESS(ZwQueryValueKey(h, &val, KeyValuePartialInformation,
+                                   buf, sizeof(buf), &len)) &&
+        kv->Type == REG_DWORD && kv->DataLength == sizeof(ULONG))
+        result = *(ULONG *)kv->Data;
     ZwClose(h);
-    (void)enable;
     return result;
+}
+
+// ---- crash-count self-disarm: FIRST code the driver ever runs ---------------
+static void GuBootArm(void)
+{
+    ULONG count = GuFltReadDword(L"BootCount");
+    if (count >= 3) {
+        gPassive = TRUE;             // boot-loop breaker: permanent pass-through
+        GuFltMark(L"Passive", 1);
+        return;
+    }
+    GuFltMark(L"BootCount", count + 1);
 }
 
 // ---- the serialized transaction --------------------------------------------
@@ -88,41 +114,56 @@ static void GuFltRunTransaction(GU_FLT_EXT *ext)
     w.Out = &out;
     w.OutLen = sizeof(out);
 
-    st = GuRunTower(&w, 12);
+    // guard INSIDE this frame (review F6.1): w must stay live so the handler
+    // can run the real unwind - mapping/handle/DMA cleanup and the
+    // keep-if-firmware-running decision - instead of leaking and handing
+    // nvlddmkm a torn GPU with a SUCCESS start
+    __try {
+        st = GuRunTower(&w, 12);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        (void)GuTxUnwind(&w);
+        st = STATUS_UNSUCCESSFUL;
+        GuFltMark(L"LastRunState", 4);   // guarded fault: unwound, boot proceeds
+        GuFltMark(L"LastRunVerdict", (ULONG)st);
+        return;
+    }
     GuFltMark(L"LastRunState", 2);
     GuFltMark(L"LastRunReached", out.PhaseReached);
     GuFltMark(L"LastRunVerdict", (ULONG)st);
     GuFltMark(L"LastRunPhase2", (ULONG)out.PhaseStatus[2]);
     GuFltMark(L"LastRunPhase7", (ULONG)out.PhaseStatus[7]);
     GuFltMark(L"LastRunPhase12", (ULONG)out.PhaseStatus[12]);
+    if (NT_SUCCESS(st))
+        GuFltMark(L"BootCount", 0);   // success resets the crash counter
 }
 
-static VOID GuFltStartWorker(PVOID ctx)
+// ---- start hold: synchronous wait, single completion site ------------------
+static NTSTATUS GuFltStartEventDone(PDEVICE_OBJECT dev, PIRP irp, PVOID ctx)
 {
-    GU_FLT_EXT *ext = (GU_FLT_EXT *)ctx;
-    PIRP irp = ext->HeldIrp;
-    ext->HeldIrp = NULL;
-
-    __try {
-        GuFltRunTransaction(ext);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        GuFltMark(L"LastRunState", 4); // worker guarded: never fail the boot
-    }
-    // release nvlddmkm's start regardless of outcome (fail-open)
-    IoCompleteRequest(irp, IO_NO_INCREMENT);
-}
-
-static NTSTATUS GuFltStartCompleted(PDEVICE_OBJECT dev, PIRP irp, PVOID ctx)
-{
-    GU_FLT_EXT *ext = (GU_FLT_EXT *)ctx;
     UNREFERENCED_PARAMETER(dev);
-    if (NT_SUCCESS(irp->IoStatus.Status) && ext->WorkItem && ext->IsTarget && GuFltEnableRead()) {
-        IoMarkIrpPending(irp);
-        ext->HeldIrp = irp;
-        IoQueueWorkItem(ext->WorkItem, GuFltStartWorker, DelayedWorkQueue, ext);
-        return STATUS_MORE_PROCESSING_REQUIRED; // worker completes the IRP
-    }
-    return STATUS_CONTINUE_COMPLETION;          // pass-through (gate off/fail)
+    UNREFERENCED_PARAMETER(irp);
+    KeSetEvent((PKEVENT)ctx, IO_NO_INCREMENT, FALSE);
+    return STATUS_MORE_PROCESSING_REQUIRED;   // unconditional ownership transfer
+}
+
+static NTSTATUS GuFltStartSerialized(GU_FLT_EXT *ext, PIRP irp)
+{
+    KEVENT done;
+    NTSTATUS st;
+
+    KeInitializeEvent(&done, NotificationEvent, FALSE);
+    IoCopyCurrentIrpStackLocationToNext(irp);
+    IoSetCompletionRoutine(irp, GuFltStartEventDone, &done, TRUE, TRUE, TRUE);
+    st = IoCallDriver(ext->Next, irp);
+    if (st == STATUS_PENDING)
+        KeWaitForSingleObject(&done, Executive, KernelMode, FALSE, NULL); // indefinite, by design
+
+    st = irp->IoStatus.Status;                 // lower drivers' verdict
+    if (NT_SUCCESS(st))
+        GuFltRunTransaction(ext);              // SEH guard lives inside, with unwind
+    IoCompleteRequest(irp, IO_NO_INCREMENT);   // the ONLY completion site
+    return st;
 }
 
 // ---- PnP ---------------------------------------------------------------------
@@ -130,12 +171,20 @@ static NTSTATUS GuFltPnp(PDEVICE_OBJECT dev, PIRP irp)
 {
     GU_FLT_EXT *ext = (GU_FLT_EXT *)dev->DeviceExtension;
     PIO_STACK_LOCATION io = IoGetCurrentIrpStackLocation(irp);
+    NTSTATUS st;
 
     switch (io->MinorFunction) {
     case IRP_MN_START_DEVICE:
-        IoCopyCurrentIrpStackLocationToNext(irp);
-        IoSetCompletionRoutine(irp, GuFltStartCompleted, ext, TRUE, TRUE, TRUE);
+        if (ext->IsTarget && !gPassive && GuFltReadDword(L"Enable") == 1)
+            return GuFltStartSerialized(ext, irp);
+        IoSkipCurrentIrpStackLocation(irp);
         return IoCallDriver(ext->Next, irp);
+    case IRP_MN_REMOVE_DEVICE:
+        IoSkipCurrentIrpStackLocation(irp);
+        st = IoCallDriver(ext->Next, irp);
+        IoDetachDevice(ext->Next);             // filter lifetime ends with the stack
+        IoDeleteDevice(dev);
+        return st;
     default:
         IoSkipCurrentIrpStackLocation(irp);
         return IoCallDriver(ext->Next, irp);
@@ -155,6 +204,7 @@ static NTSTATUS GuFltAddDevice(PDRIVER_OBJECT drv, PDEVICE_OBJECT pdo)
     PDEVICE_OBJECT self;
     NTSTATUS st;
     ULONG bus = 0, addr = 0, len;
+    WCHAR ids[512];
 
     st = IoCreateDevice(drv, sizeof(GU_FLT_EXT), NULL, FILE_DEVICE_UNKNOWN,
                         FILE_DEVICE_SECURE_OPEN, FALSE, &self);
@@ -168,27 +218,19 @@ static NTSTATUS GuFltAddDevice(PDRIVER_OBJECT drv, PDEVICE_OBJECT pdo)
         IoDeleteDevice(self);
         return STATUS_UNSUCCESSFUL;
     }
-    ext->WorkItem = IoAllocateWorkItem(self);
-    // BDF from the PDO properties (DevicePropertyAddress: dev<<16|fn)
-    len = sizeof(ULONG);
     IoGetDeviceProperty(pdo, DevicePropertyBusNumber, sizeof(ULONG), &bus, &len);
-    len = sizeof(ULONG);
     IoGetDeviceProperty(pdo, DevicePropertyAddress, sizeof(ULONG), &addr, &len);
     ext->Bus = bus;
     ext->Dev = (addr >> 16) & 0xFFFF;
     ext->Fn = addr & 0xFFFF;
-    // hardware guard: act only on the 3060 Ti (class filter sees every display)
-    {
-        WCHAR ids[512];
-        if (NT_SUCCESS(IoGetDeviceProperty(pdo, DevicePropertyHardwareID,
-                                           sizeof(ids), ids, &len)))
-            ext->IsTarget = (wcsstr(ids, L"VEN_10DE&DEV_2489") != NULL);
-    }
+    len = sizeof(ids);
+    if (NT_SUCCESS(IoGetDeviceProperty(pdo, DevicePropertyHardwareID,
+                                       sizeof(ids), ids, &len)))
+        ext->IsTarget = (wcsstr(ids, L"VEN_10DE&DEV_2489") != NULL);
     if (ext->IsTarget) {
         GuFltMark(L"Attached", 1);
         GuFltMark(L"Bus", ext->Bus);
     }
-
     self->Flags |= ext->Next->Flags & (DO_BUFFERED_IO | DO_DIRECT_IO | DO_POWER_PAGABLE | DO_POWER_INRUSH);
     self->Flags &= ~DO_DEVICE_INITIALIZING;
     return STATUS_SUCCESS;
@@ -203,12 +245,15 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
 {
     ULONG i;
     UNREFERENCED_PARAMETER(reg);
+
+    GuBootArm();                               // THE first statement: crash counter
     GuRetainHook = GuFltRetain;
     for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
         drv->MajorFunction[i] = GuFltPass;
     drv->MajorFunction[IRP_MJ_PNP] = GuFltPnp;
-    drv->MajorFunction[IRP_MJ_POWER] = GuFltPass; // PO calls use the pass path
+    drv->MajorFunction[IRP_MJ_POWER] = GuFltPass;
     drv->DriverExtension->AddDevice = GuFltAddDevice;
     drv->DriverUnload = GuFltUnload;
+    GuFltMark(L"EntryStage", 1);
     return STATUS_SUCCESS;
 }

@@ -55,9 +55,11 @@ static void GuFree(void *p) { if (p) ExFreePoolWithTag(p, GU_TAG); }
 // below 4 GiB. The falcon DMAs physical addresses (u610:150).
 static void *GuDmaAlloc(SIZE_T size, PHYSICAL_ADDRESS *dma)
 {
-    PHYSICAL_ADDRESS maxAddr, boundary; maxAddr.QuadPart = 0xFFFFFFFFull; // DMA_BIT_MASK(32) u610:892
+    PHYSICAL_ADDRESS minAddr, maxAddr, boundary; // explicit zero min (review F5.1:
+    minAddr.QuadPart = 0;                          // MmGetPhysicalAddress(NULL) is UB)
+    maxAddr.QuadPart = 0xFFFFFFFFull; // DMA_BIT_MASK(32) u610:892
     boundary.QuadPart = 0; // no boundary constraint
-    void *cpu = MmAllocateContiguousMemorySpecifyCache(size, MmGetPhysicalAddress((void *)(ULONG_PTR)0), maxAddr, boundary, MmCached);
+    void *cpu = MmAllocateContiguousMemorySpecifyCache(size, minAddr, maxAddr, boundary, MmCached);
     if (cpu) dma->QuadPart = MmGetPhysicalAddress(cpu).QuadPart;
     else GU_ERROR("dma alloc failed bytes=%llu\n", (unsigned long long)size);
     return cpu;

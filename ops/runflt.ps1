@@ -22,10 +22,10 @@ try {
     "-NoProfile","-Command","Start-Sleep -Seconds 90;",
     "pnputil /enable-device '$full' 2>`$null | Out-Null; exit")
 
-  Write-Host "cycle: disable -> enable (screen blanks; filter holds the start)"
-  pnputil /disable-device $full | Out-Null
+  Write-Host "cycle: remove -> rescan (stack rebuild; filter holds the start)"
+  pnputil /remove-device $full | Out-Null
   Start-Sleep 2
-  pnputil /enable-device $full | Out-Null
+  pnputil /scan-devices | Out-Null
 
   # the start (and the transaction inside it) can take ~10-40 s; watch the marks
   $state = 0
