@@ -86,15 +86,17 @@ if unwind fails: **STOP / POWER OFF** (upstream rule, `README` warnings).
 
 ## §5 · Known unknowns — the irreducible remainder
 
-- **E1 · Post-disable reachability** (probe phase answers): does `pnputil /disable-device`
-  leave the card in D3hot with config space alive and BAR0 reachable after PMCSR→D0 +
-  memory-decode set? If config dies → fall back to `remove-device` + `scan-devices`
-  induction. *Expected: yes (desktop PCIe, D3hot), unverified on Acer OEM firmware.*
-- **E2 · FLR-induction of the boot path**: cold boot (UEFI port), S3 resume (Linux module)
-  and warm reboot (issues #85/#47/#78) all replay the exploitable booter path. A bare
-  FLR on an unowned function is the fourth induction route — **believed equivalent,
-  proven by nobody yet**. If the falcon does not re-enter FWSEC→Booter after bare FLR,
-  escalate reset class: FLR → conventional reset (D3→D0 PM transition) → slot reset.
+- **E1 · Post-disable reachability — RESOLVED (2026-10-26)**: PnP-disable leaves the card
+  with config reads split — ID/BAR values HAL-cached and valid, cap chain and PMCSR
+  reading as garbage — and MMIO dead. `remove-device` behaves identically.
+- **E2 · FLR-induction of the boot path — RESOLVED NEGATIVE on P1 (2026-10-26)**:
+  claim passes (enumeration-time cap cache + FLR-establishes-D0 restructure). Induce
+  cannot wake the function: PMCSR D0 write and config-space FLR write both fail to
+  restore MMIO — config writes do not land in the displaced power state at all. The
+  runtime window Linux gets by transacting at boot (card D0-unowned) does not exist at
+  Windows runtime on this platform. Remaining viable routes: (A) WDF function driver
+  binding the PDO with power-IRP control — the true analog of unbind/transact/rebind;
+  (B) the boot-time UEFI arm (original path 1), where D0-unowned is natural.
 - **E3 · nvlddmkm rebind tolerance**: whether enable-device re-initializes a mid-session
   unlocked card without reboot on Win11 617.14. TDR-free requirement for gate G3.
 
