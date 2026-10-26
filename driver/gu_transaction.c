@@ -500,6 +500,8 @@ static void free_coherent(GU_WORK *w) // u610:489
 // read as garbage. Linux caches pm_cap from enumeration; we cache from probe,
 // which the orchestrator runs while the card is still enabled (D0).
 static LONG gCachedPciCap = -1, gCachedPmCap = -1;
+// host-provided retention pin (control driver: ObReferenceObject(self))
+void (*GuRetainHook)(void);
 
 static void GuWalkCaps(GU_WORK *w)
 {
@@ -1315,6 +1317,50 @@ NTSTATUS GuTxUnwind(GU_WORK *w)
         (w->OriginalCmd & (GU_PCI_COMMAND_MEMORY | GU_PCI_COMMAND_MASTER)))
         return GuErrToNt(-EIO);
     return GuErrToNt(ret);
+}
+
+NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
+{
+    GU_PHASE_FN phases[GuPhaseCount] = {
+        [GuPhaseProbe]      = GuTxProbe,
+        [GuPhaseAssets]     = GuTxAssets,
+        [GuPhaseClaim]      = GuTxClaim,
+        [GuPhaseInduce]     = GuTxInduce,
+        [GuPhaseGfw]        = GuTxGfw,
+        [GuPhaseLayout]     = GuTxLayout,
+        [GuPhaseDma]        = GuTxDma,
+        [GuPhaseFwsec]      = GuTxFwsec,
+        [GuPhaseSignature]  = GuTxSignature,
+        [GuPhaseBoot]       = GuTxBoot,
+        [GuPhaseSignature2] = GuTxSignature,
+        [GuPhaseSelector]   = GuTxSelector,
+        [GuPhaseReset]      = GuTxReset,
+        [GuPhaseUnwind]     = GuTxUnwind,
+    };
+    NTSTATUS st = STATUS_SUCCESS;
+    ULONG p, last = min(phaseLimit, (ULONG)GuPhaseReset);
+
+    for (p = 0; p <= last; p++) {
+        w->Out->PhaseReached = p;
+        st = phases[p](w);
+        w->Out->PhaseStatus[p] = st;
+        if (!NT_SUCCESS(st))
+            break;
+    }
+    // Never leave the V67 signature published for a later stock boot (u610:1481).
+    if (!NT_SUCCESS(st) && w->SignatureCalls == 1 && w->MetaCpu)
+        (void)GuTxSignature(w);
+    // Unwind always runs (single descent geodesic), even after success.
+    w->Out->PhaseStatus[GuPhaseUnwind] = phases[GuPhaseUnwind](w);
+    w->Out->PhaseReached = GuPhaseUnwind;
+    if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuPhaseUnwind]))
+        st = w->Out->PhaseStatus[GuPhaseUnwind];
+    // Firmware still running: keep buffers until power off (u610:1486-1491).
+    if (w->Retained && GuRetainHook) {
+        GuRetainHook(); // host pins its driver object: unload fails safely
+        st = STATUS_DEVICE_POWERED_OFF; // "power off before trying again"
+    }
+    return st;
 }
 
 // ================= errno -> NTSTATUS ==========================================

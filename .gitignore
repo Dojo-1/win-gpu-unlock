@@ -8,3 +8,8 @@ build/
 driver/gu_fw_blobs.h.generated
 firmware-assets/
 benchmark/gemm_bench.exe
+build2flt/
+build/GuFltUnlock.sys
+build/post-unlock.txt
+build/crash.dmp
+build/*.dmp

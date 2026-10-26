@@ -16,6 +16,8 @@
 
 static PDEVICE_OBJECT gControlDev;
 static PDRIVER_OBJECT gDrvObj;
+extern void (*GuRetainHook)(void);
+static void GuRetainSelf(void) { if (gDrvObj) ObReferenceObject(gDrvObj); }
 
 // ============ rebind-race watch (ported Linux-boot-window insight) ============
 // The Linux module wins its window by load order; on Windows the same state
@@ -23,7 +25,6 @@ static PDRIVER_OBJECT gDrvObj;
 // watch thread polls for config/MMIO validity and fires the full tower the
 // instant the card is D0, racing nvlddmkm's GSP init. Losing the race is a
 // clean refusal: the tower's WPR2-up check (-EBUSY) leaves the card alone.
-static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit);
 // padded mailbox: the tower writes GU_RUN_OUT fields (PostFlrBarChip,
 // SelectorReadback) at offsets 96..107 - beyond GU_WATCH_RESULT's 96 bytes
 static struct { GU_WATCH_RESULT r; ULONG pad[8]; } gWatchBox;
@@ -72,49 +73,7 @@ static void GuWatchThread(PVOID ctx)
 // u610:1443-1495: monotone ascent; on failure republish the stock signature if
 // V67 is still published (u610:1480-1482); unwind always runs; retention pins
 // the driver (u610:1486-1491, __module_get analog = leaked driver reference).
-static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit)
-{
-    GU_PHASE_FN phases[GuPhaseCount] = {
-        [GuPhaseProbe]      = GuTxProbe,
-        [GuPhaseAssets]     = GuTxAssets,
-        [GuPhaseClaim]      = GuTxClaim,
-        [GuPhaseInduce]     = GuTxInduce,
-        [GuPhaseGfw]        = GuTxGfw,
-        [GuPhaseLayout]     = GuTxLayout,
-        [GuPhaseDma]        = GuTxDma,
-        [GuPhaseFwsec]      = GuTxFwsec,
-        [GuPhaseSignature]  = GuTxSignature,
-        [GuPhaseBoot]       = GuTxBoot,
-        [GuPhaseSignature2] = GuTxSignature,
-        [GuPhaseSelector]   = GuTxSelector,
-        [GuPhaseReset]      = GuTxReset,
-        [GuPhaseUnwind]     = GuTxUnwind,
-    };
-    NTSTATUS st = STATUS_SUCCESS;
-    ULONG p, last = min(phaseLimit, (ULONG)GuPhaseReset);
-
-    for (p = 0; p <= last; p++) {
-        w->Out->PhaseReached = p;
-        st = phases[p](w);
-        w->Out->PhaseStatus[p] = st;
-        if (!NT_SUCCESS(st))
-            break;
-    }
-    // Never leave the V67 signature published for a later stock boot (u610:1481).
-    if (!NT_SUCCESS(st) && w->SignatureCalls == 1 && w->MetaCpu)
-        (void)GuTxSignature(w);
-    // Unwind always runs (single descent geodesic), even after success.
-    w->Out->PhaseStatus[GuPhaseUnwind] = phases[GuPhaseUnwind](w);
-    w->Out->PhaseReached = GuPhaseUnwind;
-    if (NT_SUCCESS(st) && !NT_SUCCESS(w->Out->PhaseStatus[GuPhaseUnwind]))
-        st = w->Out->PhaseStatus[GuPhaseUnwind];
-    // Firmware still running: keep buffers until power off (u610:1486-1491).
-    if (w->Retained && gDrvObj) {
-        ObReferenceObject(gDrvObj); // pins the driver: unload now fails safely
-        st = STATUS_DEVICE_POWERED_OFF; // "power off before trying again"
-    }
-    return st;
-}
+// tower dispatcher now lives in gu_transaction.c (shared with the filter driver)
 
 static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
 {
@@ -253,6 +212,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
     PDEVICE_OBJECT dev;
     NTSTATUS st;
 
+    GuRetainHook = GuRetainSelf;
     GuMarkStage(drv, L"entry");
     gDrvObj = drv;
     RtlInitUnicodeString(&name, L"\\Device\\GuRtUnlock");

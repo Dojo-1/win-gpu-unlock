@@ -90,6 +90,11 @@ NTSTATUS GuTxSelector(GU_WORK *w);
 NTSTATUS GuTxReset(GU_WORK *w);
 NTSTATUS GuTxUnwind(GU_WORK *w);
 
+// monotone tower dispatch (gu_transaction.c): phases 0..min(limit, Reset),
+// republish-stock on failure, unwind always, retention pinning. Shared by the
+// control-device driver and the start-IRP filter driver.
+NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit);
+
 int  GuGspOpen(GU_WORK *w);          // 0 / Linux errno; size-checked
 int  GuGspRead(GU_WORK *w, unsigned long long fileOffset, void *buf, SIZE_T len);
 void GuGspClose(GU_WORK *w);

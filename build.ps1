@@ -6,7 +6,7 @@
 #   - driver/gu_fw_blobs.h generated: python tools\make_fw_blobs.py <asset_dir> driver\gu_fw_blobs.h
 #   - GSP image deployed: copy gsp_ga10x.bin -> C:\Windows\System32\drivers\GuRtGsp.bin (admin)
 # Usage: .\build.ps1 [-NoSign]
-param([switch]$NoSign, [string]$Out = "build")
+param([switch]$NoSign, [string]$Out = 'build', [string]$Target = 'gurt')
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -17,6 +17,11 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 if (-not (Test-Path (Join-Path $drv 'gu_fw_blobs.h'))) {
     throw "driver/gu_fw_blobs.h missing - run tools/make_fw_blobs.py first"
 }
+
+# target: guflt (start-IRP filter) or gurt (control device, default)
+$target = if (Test-Path variable:Target) { $Target } else { 'gurt' }
+$mainSrc = if ($target -eq 'guflt') { 'gu_flt.c' } else { 'gu_rt.c' }
+$sysName = if ($target -eq 'guflt') { 'GuFltUnlock' } else { 'GuRtUnlock' }
 
 # --- locate VS2022 cl + WDK 26100 ---
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -31,7 +36,7 @@ $inc = $sdk.FullName
 Write-Host "MSVC: $msvcToolset"
 Write-Host "WDK : $inc"
 
-$sources = @('gu_rt.c','gu_transaction.c','gu_gsp.c',
+$sources = @($mainSrc,'gu_transaction.c','gu_gsp.c',
              'portable\prep_610.c','portable\vbios_610.c','portable\layout_610.c','portable\gfw_eval.c')
 $includes = "/I`"$drv`" /I`"$inc\km`" /I`"$inc\km\crt`" /I`"$inc\shared`" /I`"$inc\ucrt`" /I`"$inc\um`""
 $flags = "/nologo /c /kernel /Zi /W4 /GS- /GR- /Gz /D_AMD64_ /D_WIN64 /DWIN32_LEAN_AND_MEAN /DGU_WINDOWS_KERNEL=1"
@@ -43,14 +48,14 @@ foreach ($s in $sources) {
 }
 $kmLib = "$kits\Lib\10.0.26100.0\km\x64"
 $cl_lines += "link /nologo /DEBUG:FULL /MACHINE:X64 /SUBSYSTEM:NATIVE,10 /DRIVER /ENTRY:DriverEntry " +
-             "/OUT:`"$out\GuRtUnlock.sys`" /PDB:`"$out\GuRtUnlock.pdb`" `"$kmLib\ntoskrnl.lib`" `"$kmLib\hal.lib`" " +
+             "/OUT:`"$out\$sysName.sys`" /PDB:`"$out\$sysName.pdb`" `"$kmLib\ntoskrnl.lib`" `"$kmLib\hal.lib`" " +
              (($sources | ForEach-Object { "`"$out\$(Split-Path $_ -Leaf).obj`"" }) -join ' ').Replace('.c.obj','.obj') + " || exit /b 1"
 
 $cmdFile = Join-Path $out 'build.cmd'
 Set-Content -Path $cmdFile -Value ($cl_lines -join "`r`n")
 & cmd.exe /c $cmdFile
 if ($LASTEXITCODE) { throw "build failed" }
-Get-Item "$out\GuRtUnlock.sys" | Select-Object Name, Length
+Get-Item "$out\$sysName.sys" | Select-Object Name, Length
 
 if ($NoSign) { return }
 
