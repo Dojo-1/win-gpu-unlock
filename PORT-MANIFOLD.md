@@ -109,6 +109,24 @@ if unwind fails: **STOP / POWER OFF** (upstream rule, `README` warnings).
   hangs, reboot required). Consequence of the platform cycle, not the transaction
   design.
 
+## §5b · Runtime avenue — final closure (2026-10-26, run13)
+
+Every out-of-stack approach to the D0-unowned window was driven to an empirical
+verdict on P1:
+
+| Variant | Result |
+|---|---|
+| Displaced-state access (disable/remove) | Dead: D3cold; PMCSR/FLR cannot apply by spec |
+| Rebind-window ambush (kernel watch thread) | Race is real but COLLIDES with nvlddmkm start -> 0x116 VIDEO_TDR_FAILURE bugcheck (dump 102626-17687). Safe victory requires serializing nvlddmkm's start behind the transaction. |
+
+Conclusion: from a side-line control device, the window is either unreachable
+(D3cold) or contended to a system halt (TDR). The only Windows-native form that
+can win is the in-stack hook (boot-start driver / lower filter that holds the
+GPU start IRP pending, transacts, then completes it) — the sanctioned analog of
+Linux's initramfs load order. Also recorded: both earlier 0x7E bugchecks were
+traced to a single swprintf binding bug in a diagnostic breadcrumb (identical
+RVA page-offset in both dumps), fixed in 7bc0f89.
+
 ## §6 · Deliverable honesty ledger (σ₃)
 
 Ported and present in this tree:
