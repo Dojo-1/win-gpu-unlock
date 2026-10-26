@@ -93,6 +93,7 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
     w->Bus = req.Bus; w->Device = req.Device; w->Fn = req.Fn;
     w->PciCapOff = -1; w->PmCapOff = -1;
     w->Out = out;
+    w->OutLen = outLen;
 
     NTSTATUS st = GuRunTower(w, req.PhaseLimit);
     out->Diag[7] = (ULONG)st; // verdict travels in-band: copyback happens on error status

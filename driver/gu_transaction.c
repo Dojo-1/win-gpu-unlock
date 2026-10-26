@@ -14,7 +14,7 @@
  *  - The resume/suspend path is not ported (cold-induction path only).
  */
 #include "gu_transaction.h"
-#include "gu_rt.h"          // GU_RUN_OUT definition
+#include "gu_rt.h"          // GU_RUN_OUT + extended dump type
 #include "gu_fw_blobs.h"
 #include <wdm.h>
 
@@ -578,6 +578,13 @@ NTSTATUS GuTxProbe(GU_WORK *w)
     GuWalkCaps(w);
     w->Out->Diag[4] = (ULONG)w->PciCapOff;
     w->Out->Diag[5] = (ULONG)w->PmCapOff;
+    // config dump for offline diagnosis; strictly bounded by the IRP's
+    // OutputBufferLength so a short buffer can never overflow SystemBuffer
+    if (w->Out && w->OutLen >= 108 + 256) {
+        u32 *dump = (u32 *)((u8 *)w->Out + 112);
+        for (u32 i = 1; i < 64; i++)
+            (void)GuCfgDwordR(w, i * 4, &dump[i - 1], FALSE);
+    }
     GU_NOTE("probe: id=%#x subsys=%#x bar0=%#llx chip=%#x pm=%u\n",
             id, subsys, (unsigned long long)pa.QuadPart, chip, pmcsr);
     return STATUS_SUCCESS;
@@ -662,25 +669,18 @@ NTSTATUS GuTxClaim(GU_WORK *w)
 
     w->Out->Diag[4] = (ULONG)w->PciCapOff; // instrumentation
     w->Out->Diag[5] = (ULONG)w->PmCapOff;
-    // D0 induction: Windows PnP disable may leave D3hot. Linux runs pre-driver
-    // in D0 and refuses otherwise; on Windows we must ask for D0 ourselves.
+    // PM state is diagnostic only: on a PnP-disabled card PMCSR reads return
+    // garbage (observed 0x8CE1) while ID/BAR reads stay valid, and PMCSR
+    // writes do not take. The induce FLR is the real wake-up: FLR returns the
+    // function to D0 by definition, and induce's post-FLR BAR0 reads prove it.
     if (w->PmCapOff >= 0) {
         ret = GuCfgWordR(w, PCI_PM_CTRL, &pmcsr, TRUE);
-        if (ret)
-            return GuErrToNt(ret);
-        if ((pmcsr & PCI_PM_CTRL_STATE_MASK) != 0) {
-            GU_NOTE("claim: PM state D%u -> inducing D0\n", pmcsr & PCI_PM_CTRL_STATE_MASK);
-            if (GuCfgWordW(w, PCI_PM_CTRL, pmcsr & ~PCI_PM_CTRL_STATE_MASK, TRUE))
-                return GuErrToNt(-EIO);
-            LARGE_INTEGER t; t.QuadPart = -2 * 10000; // 2 ms
-            KeDelayExecutionThread(KernelMode, FALSE, &t);
-            if (GuCfgWordR(w, PCI_PM_CTRL, &pmcsr, TRUE) ||
-                (pmcsr & PCI_PM_CTRL_STATE_MASK) != 0)
-                { w->Out->Diag[6] = 2; w->Out->Diag[5] |= 0x10000u | ((ULONG)pmcsr << 8); return GuErrToNt(-EOPNOTSUPP); } // D0 refused; Diag5 |= pmcsr
-        }
+        if (!ret)
+            GU_NOTE("claim: PMCSR reads %#x (diagnostic only; induce FLR establishes D0)\n", pmcsr);
     }
+    (void)pmcsr;
 
-    // FLR capability gate (u610:818-822)
+    // FLR capability gate
     ret = GuCfgDwordR(w, PCI_EXP_DEVCAP, &cap, TRUE);
     if (ret || !(cap & PCI_EXP_DEVCAP_FLR)) {
         w->Out->Diag[6] = 3; // FLR capability missing
@@ -726,6 +726,8 @@ NTSTATUS GuTxClaim(GU_WORK *w)
     return STATUS_SUCCESS;
 }
 
+static int GuPcieFlr(GU_WORK *w);
+
 // Phase 3 · induce — NEW. FLR away this power cycle's driver-initialized state
 // (WPR2 up, GSP-RM run) so the ROM boot path replays and the tower starts from
 // the cold entry the Linux module gets by running pre-driver. Mechanics ported
@@ -736,8 +738,38 @@ NTSTATUS GuTxInduce(GU_WORK *w)
     u16 command;
     int ret;
 
-    if (read_bar(w, 0, &chip) || !chip || inaccessible(chip))
-        return GuErrToNt(-ENODEV);
+    // Wake-up ladder: in the PnP-displaced state MMIO reads are dead and
+    // config READS lie (HAL-cached or garbage), but config WRITES may still
+    // land. Rung 1: PMCSR->D0 write at the cached cap, then probe MMIO.
+    // Rung 2: FLR write, wait, probe MMIO. Diag[6] reports which rung woke it.
+    {
+        u32 mmio_ok = 0;
+        if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip))
+            mmio_ok = 1;
+        if (!mmio_ok) {
+            w->Out->Diag[6] = 10; // baseline MMIO dead
+            if (gCachedPmCap >= 0) {
+                (void)GuCfgWordW(w, PCI_PM_CTRL, 0, TRUE);      // D0 request
+                LARGE_INTEGER t; t.QuadPart = -20 * 10000;       // 20 ms
+                KeDelayExecutionThread(KernelMode, FALSE, &t);
+                if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip)) {
+                    mmio_ok = 1;
+                    w->Out->Diag[6] = 11;                        // PMCSR write woke it
+                }
+            }
+            if (!mmio_ok) {
+                (void)GuPcieFlr(w);                              // FLR as the reset-class wake
+                LARGE_INTEGER t; t.QuadPart = -1000 * 10000;     // 1 s for FLR completion
+                KeDelayExecutionThread(KernelMode, FALSE, &t);
+                if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip)) {
+                    mmio_ok = 1;
+                    w->Out->Diag[6] = 12;                        // FLR woke it
+                }
+            }
+            if (!mmio_ok)
+                return GuErrToNt(-ENODEV);
+        }
+    }
     if (GuCfgWordR(w, PCI_COMMAND, &command, FALSE) ||
         command == 0xffff || (command & GU_PCI_COMMAND_MASTER))
         return GuErrToNt(-EIO);

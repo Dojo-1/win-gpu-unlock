@@ -50,5 +50,6 @@ typedef struct _GU_RUN_OUT {
     ULONG   PostFlrBarChip;                  // u610:1268 readback
     ULONG   SelectorReadback[2];
 } GU_RUN_OUT;
+// extended output: client sends outLen >= 108+256; dump dwords live at 112..
 
 #endif // GU_RT_H

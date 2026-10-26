@@ -56,7 +56,7 @@ Write-Host "bdf    : bus $bus device $slot function $fn"
 $wd = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList @(
     "-NoProfile","-Command",
     "Start-Sleep -Seconds $WatchdogSec;",
-    "pnputil /enable-device '$full' 2>`$null | Out-Null;",
+    "pnputil /scan-devices 2>`$null | Out-Null; pnputil /enable-device '$full' 2>`$null | Out-Null;",
     "exit")
 
 try {
@@ -73,11 +73,11 @@ try {
         if ($wh -ne -1 -and $wh -ne [IntPtr]::Zero) {
             [void][GuIo]::DeviceIoControl($wh, 0x00222004, $win, $win.Length, $wout, $wout.Length, [ref]$wret, [IntPtr]::Zero)
             [void][GuIo]::CloseHandle($wh)
-            Write-Host ("warm   : caps cached, pcie=0x{0:X} pm=0x{1:X}" -f [BitConverter]::ToUInt32($wout,80), [BitConverter]::ToUInt32($wout,84))
+            try { Write-Host ("warm   : caps cached, pcie=0x{0:X} pm=0x{1:X}" -f [BitConverter]::ToUInt32($wout,80), [BitConverter]::ToUInt32($wout,84)) } catch { Write-Host "warm   : ok (caps cached)" }
         }
     }
-    Write-Host "disable: detaching nvlddmkm (console may blank NOW if this is the only GPU)"
-    pnputil /disable-device $full | Out-Null
+    Write-Host "remove : detaching device from tree (console blanks; scan-devices restores)"
+    pnputil /remove-device $full | Out-Null
 
     $h = [GuIo]::CreateFile("\\.\GuRtUnlock", [uint32]3221225472, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
     if ($h -eq -1 -or $h -eq [IntPtr]::Zero) { throw "open \\.\GuRtUnlock failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error()) (driver loaded? signed?)" }
@@ -88,7 +88,8 @@ try {
           [BitConverter]::GetBytes([uint32]$PhaseLimit) +
           [BitConverter]::GetBytes([uint32]$(if ($ConfirmBlackout) {1} else {0}))
     # GU_RUN_OUT: 8 + 13*4 + 8*4 + 4 + 8 = 92 -> pad to 96
-    $out = New-Object byte[] 108
+    $out = New-Object byte[] 364
+    [BitConverter]::GetBytes([uint32]364).CopyTo($out, 108)   # extended-cap marker for the config dump
     $ret = 0
     $ok = [GuIo]::DeviceIoControl($h, 0x00222004, $in, $in.Length, $out, $out.Length, [ref]$ret, [IntPtr]::Zero)
     $err = [Runtime.InteropServices.Marshal]::GetLastWin32Error()   # capture BEFORE CloseHandle resets it
@@ -96,13 +97,15 @@ try {
     $reached = [BitConverter]::ToUInt32($out, 4)
     Write-Host "tower  : phase reached $reached, in=$([BitConverter]::ToString($in[0..15])), diag id=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,64))) bar0=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,68))) chip=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,72))) pm=$(('0x{0:X8}' -f [BitConverter]::ToUInt32($out,76)))"
     $ph = 0..13 | ForEach-Object { '0x{0:X8}' -f [BitConverter]::ToUInt32($out, 8 + $_*4) }
+    $cfgd = ($out[108..363] | ForEach-Object { $_.ToString("X2") }) -join ''
+    Write-Host "config : $cfgd"
     Write-Host "phases: $($ph -join ' ')"
     Write-Host "raw-out: $([BitConverter]::ToString($out))"
     if (-not $ok) { Write-Host "IOCTL win32 error: $err" }
 }
 finally {
-    Write-Host "enable : rebinding driver (watchdog covers us at +$WatchdogSec s)"
-    pnputil /enable-device $full | Out-Null
+    Write-Host "restore: re-scanning PCI bus (watchdog covers us at +$WatchdogSec s)"
+    pnputil /scan-devices | Out-Null
     if (-not $wd.HasExited) { Stop-Process $wd -Force }
     Get-PnpDevice -InstanceId $full | Format-List FriendlyName, Status | Out-Host
 }

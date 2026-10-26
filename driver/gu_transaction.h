@@ -68,6 +68,7 @@ typedef struct _GU_WORK {
     HANDLE GspHandle;
     // reporting
     struct _GU_RUN_OUT *Out;
+    ULONG OutLen;          // real OutputBufferLength (dump bounds)
 } GU_WORK;
 
 // Phase tower in exact u610.c:1457-1479 order. Probe is the Windows-only,
