@@ -25,6 +25,7 @@ typedef struct _GU_FLT_EXT {
     struct _IO_WORKITEM *WorkItem; // opaque fwd: IO_WORKITEM typedef not visible here
     PIRP           HeldIrp;       // start IRP held during the transaction
     ULONG          Bus, Dev, Fn;
+    BOOLEAN        IsTarget;      // hardware-guard: only the 3060 Ti is acted on
 } GU_FLT_EXT;
 
 extern void (*GuRetainHook)(void);
@@ -115,7 +116,7 @@ static NTSTATUS GuFltStartCompleted(PDEVICE_OBJECT dev, PIRP irp, PVOID ctx)
 {
     GU_FLT_EXT *ext = (GU_FLT_EXT *)ctx;
     UNREFERENCED_PARAMETER(dev);
-    if (NT_SUCCESS(irp->IoStatus.Status) && ext->WorkItem && GuFltEnableRead()) {
+    if (NT_SUCCESS(irp->IoStatus.Status) && ext->WorkItem && ext->IsTarget && GuFltEnableRead()) {
         IoMarkIrpPending(irp);
         ext->HeldIrp = irp;
         IoQueueWorkItem(ext->WorkItem, GuFltStartWorker, DelayedWorkQueue, ext);
@@ -176,8 +177,17 @@ static NTSTATUS GuFltAddDevice(PDRIVER_OBJECT drv, PDEVICE_OBJECT pdo)
     ext->Bus = bus;
     ext->Dev = (addr >> 16) & 0xFFFF;
     ext->Fn = addr & 0xFFFF;
-    GuFltMark(L"Attached", 1);
-    GuFltMark(L"Bus", ext->Bus);
+    // hardware guard: act only on the 3060 Ti (class filter sees every display)
+    {
+        WCHAR ids[512];
+        if (NT_SUCCESS(IoGetDeviceProperty(pdo, DevicePropertyHardwareID,
+                                           sizeof(ids), ids, &len)))
+            ext->IsTarget = (wcsstr(ids, L"VEN_10DE&DEV_2489") != NULL);
+    }
+    if (ext->IsTarget) {
+        GuFltMark(L"Attached", 1);
+        GuFltMark(L"Bus", ext->Bus);
+    }
 
     self->Flags |= ext->Next->Flags & (DO_BUFFERED_IO | DO_DIRECT_IO | DO_POWER_PAGABLE | DO_POWER_INRUSH);
     self->Flags &= ~DO_DEVICE_INITIALIZING;
