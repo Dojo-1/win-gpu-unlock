@@ -229,13 +229,15 @@ static void GuUnload(PDRIVER_OBJECT drv)
 // without elevation after any load attempt).
 static void GuMarkStage(PDRIVER_OBJECT drv, PCWSTR stage)
 {
-    WCHAR path[160];
     UNICODE_STRING key, val;
     HANDLE h;
     OBJECT_ATTRIBUTES oa;
     UNREFERENCED_PARAMETER(drv);
-    swprintf(path, 160, L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\GuRtUnlock\\Parameters");
-    RtlInitUnicodeString(&key, path);
+    // constant path - no formatting. The swprintf variant here was the 0x7E
+    // root cause: the kernel CRT bound the size argument as the format
+    // pointer, faulting on every load (identical RVA offset in both dumps).
+    RtlInitUnicodeString(&key,
+        L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\GuRtUnlock\\Parameters");
     InitializeObjectAttributes(&oa, &key, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     if (!NT_SUCCESS(ZwCreateKey(&h, KEY_SET_VALUE, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, NULL)))
         return;
