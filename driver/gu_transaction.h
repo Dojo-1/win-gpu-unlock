@@ -69,6 +69,7 @@ typedef struct _GU_WORK {
     // reporting
     struct _GU_RUN_OUT *Out;
     ULONG OutLen;          // real OutputBufferLength (dump bounds)
+    ULONG Flags;           // GU_F_* from the request (probe experiments)
 } GU_WORK;
 
 // Phase tower in exact u610.c:1457-1479 order. Probe is the Windows-only,

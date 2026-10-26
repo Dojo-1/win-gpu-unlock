@@ -34,6 +34,20 @@ typedef enum _GU_PHASE {
 #define GU_IOCTL_RUN \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+// rebind-race watch: arm a kernel thread that polls for the card's D0 return
+// during PnP re-enable and fires the full tower in the pre-GSP window
+#define GU_IOCTL_WATCH_ARM \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define GU_IOCTL_WATCH_POLL \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+typedef struct _GU_WATCH_RESULT {
+    ULONG State;        // 0=armed 1=running 2=done 3=timeout 4=error
+    ULONG PhaseReached;
+    NTSTATUS PhaseStatus[GuPhaseCount];
+    ULONG Diag[8];
+} GU_WATCH_RESULT;
+
 typedef struct _GU_RUN_IN {
     ULONG Size;            // sizeof(GU_RUN_IN)
     ULONG Bus, Device, Fn; // BDF of the (PnP-disabled) target

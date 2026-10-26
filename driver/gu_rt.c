@@ -17,6 +17,56 @@
 static PDEVICE_OBJECT gControlDev;
 static PDRIVER_OBJECT gDrvObj;
 
+// ============ rebind-race watch (ported Linux-boot-window insight) ============
+// The Linux module wins its window by load order; on Windows the same state
+// exists inside PnP rebind (D3cold -> D0 -> ... -> nvlddmkm GSP boot). This
+// watch thread polls for config/MMIO validity and fires the full tower the
+// instant the card is D0, racing nvlddmkm's GSP init. Losing the race is a
+// clean refusal: the tower's WPR2-up check (-EBUSY) leaves the card alone.
+static NTSTATUS GuRunTower(GU_WORK *w, ULONG phaseLimit);
+// padded mailbox: the tower writes GU_RUN_OUT fields (PostFlrBarChip,
+// SelectorReadback) at offsets 96..107 - beyond GU_WATCH_RESULT's 96 bytes
+static struct { GU_WATCH_RESULT r; ULONG pad[8]; } gWatchBox;
+#define gWatch (gWatchBox.r)
+static LONG gWatchArmed = 0;
+static ULONG gWatchBus, gWatchDev, gWatchFn;
+
+static void GuWatchThread(PVOID ctx)
+{
+    GU_WORK w;
+    LARGE_INTEGER t;
+    u32 id = 0;
+    int i;
+
+    UNREFERENCED_PARAMETER(ctx);
+    gWatch.State = 1;
+    // poll up to 30 s for config validity (vendor dword readable, right ID)
+    for (i = 0; i < 3000; i++) {
+        PCI_SLOT_NUMBER slot; slot.u.AsULONG = 0;
+        slot.u.bits.DeviceNumber = gWatchDev; slot.u.bits.FunctionNumber = gWatchFn;
+        ULONG got = HalGetBusDataByOffset(PCIConfiguration, gWatchBus, slot.u.AsULONG, &id, 0, 4);
+        if (got == 4 && id == 0x248910DEu)
+            break;
+        t.QuadPart = -10 * 10000; // 10 ms
+        KeDelayExecutionThread(KernelMode, FALSE, &t);
+    }
+    if (i >= 3000 || id != 0x248910DEu) {
+        gWatch.State = 3; // timeout: card never returned
+        PsTerminateSystemThread(STATUS_SUCCESS);
+        return;
+    }
+    // card is back: brief settle for power/decode, then fire the full tower
+    t.QuadPart = -50 * 10000; // 50 ms
+    KeDelayExecutionThread(KernelMode, FALSE, &t);
+    RtlZeroMemory(&w, sizeof(w));
+    w.Bus = gWatchBus; w.Device = gWatchDev; w.Fn = gWatchFn;
+    w.PciCapOff = -1; w.PmCapOff = -1;
+    w.Out = (struct _GU_RUN_OUT *)&gWatch; // phase/diag writes land in the mailbox
+    (void)GuRunTower(&w, 12);
+    gWatch.State = 2;
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
 // ================= L4 · dispatcher (geodesic enforcement) ======================
 
 // u610:1443-1495: monotone ascent; on failure republish the stock signature if
@@ -94,6 +144,7 @@ static NTSTATUS GuDispatchIoctl(PIRP Irp, PIO_STACK_LOCATION io)
     w->PciCapOff = -1; w->PmCapOff = -1;
     w->Out = out;
     w->OutLen = outLen;
+    w->Flags = req.Flags;
 
     NTSTATUS st = GuRunTower(w, req.PhaseLimit);
     out->Diag[7] = (ULONG)st; // verdict travels in-band: copyback happens on error status
@@ -124,6 +175,33 @@ static NTSTATUS GuDeviceControl(PDEVICE_OBJECT d, PIRP i)
     case GU_IOCTL_RUN:
         st = GuDispatchIoctl(i, io);
         break;
+    case GU_IOCTL_WATCH_ARM: {
+        GU_RUN_IN req = {0};
+        HANDLE th;
+        if (io->Parameters.DeviceIoControl.InputBufferLength < sizeof(GU_RUN_IN)) {
+            st = STATUS_BUFFER_TOO_SMALL; break;
+        }
+        req = *(GU_RUN_IN *)i->AssociatedIrp.SystemBuffer;
+        if (!(req.Flags & GU_F_CONFIRM_BLACKOUT)) { st = STATUS_ACCESS_DENIED; break; }
+        if (InterlockedCompareExchange(&gWatchArmed, 1, 0) != 0) { st = STATUS_DEVICE_BUSY; break; }
+        RtlZeroMemory(&gWatch, sizeof(gWatch));
+        gWatchBus = req.Bus; gWatchDev = req.Device; gWatchFn = req.Fn;
+        if (!NT_SUCCESS(PsCreateSystemThread(&th, 0, NULL, NULL, NULL, GuWatchThread, NULL))) {
+            gWatchArmed = 0; st = STATUS_INSUFFICIENT_RESOURCES; break;
+        }
+        ZwClose(th);
+        i->IoStatus.Information = 0;
+        IoCompleteRequest(i, IO_NO_INCREMENT);
+        return STATUS_SUCCESS;
+    }
+    case GU_IOCTL_WATCH_POLL: {
+        ULONG outLen = io->Parameters.DeviceIoControl.OutputBufferLength;
+        if (outLen < sizeof(GU_WATCH_RESULT)) { st = STATUS_BUFFER_TOO_SMALL; break; }
+        RtlCopyMemory(i->AssociatedIrp.SystemBuffer, &gWatch, sizeof(GU_WATCH_RESULT));
+        i->IoStatus.Information = sizeof(GU_WATCH_RESULT);
+        IoCompleteRequest(i, IO_NO_INCREMENT);
+        return STATUS_SUCCESS;
+    }
     default:
         st = STATUS_INVALID_DEVICE_REQUEST;
         break;
@@ -147,6 +225,25 @@ static void GuUnload(PDRIVER_OBJECT drv)
     IoDeleteDevice(gControlDev);
 }
 
+// DriverEntry progress breadcrumb under the service Parameters key (readable
+// without elevation after any load attempt).
+static void GuMarkStage(PDRIVER_OBJECT drv, PCWSTR stage)
+{
+    WCHAR path[160];
+    UNICODE_STRING key, val;
+    HANDLE h;
+    OBJECT_ATTRIBUTES oa;
+    UNREFERENCED_PARAMETER(drv);
+    swprintf(path, 160, L"\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Services\\GuRtUnlock\\Parameters");
+    RtlInitUnicodeString(&key, path);
+    InitializeObjectAttributes(&oa, &key, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateKey(&h, KEY_SET_VALUE, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, NULL)))
+        return;
+    RtlInitUnicodeString(&val, L"EntryStage");
+    ZwSetValueKey(h, &val, 0, REG_SZ, (PVOID)stage, (ULONG)((wcslen(stage) + 1) * sizeof(WCHAR)));
+    ZwClose(h);
+}
+
 NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
 {
     UNREFERENCED_PARAMETER(reg);
@@ -154,15 +251,22 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
     PDEVICE_OBJECT dev;
     NTSTATUS st;
 
+    GuMarkStage(drv, L"entry");
     gDrvObj = drv;
     RtlInitUnicodeString(&name, L"\\Device\\GuRtUnlock");
     st = IoCreateDevice(drv, 0, &name, FILE_DEVICE_UNKNOWN,
                         FILE_DEVICE_SECURE_OPEN, TRUE, &dev);
-    if (!NT_SUCCESS(st))
+    if (!NT_SUCCESS(st)) {
+        GuMarkStage(drv, L"dev-failed");
         return st;
+    }
+    GuMarkStage(drv, L"dev-ok");
     UNICODE_STRING link;
     RtlInitUnicodeString(&link, L"\\DosDevices\\GuRtUnlock");
-    IoCreateSymbolicLink(&link, &name);
+    st = IoCreateSymbolicLink(&link, &name);
+    GuMarkStage(drv, NT_SUCCESS(st) ? L"link-ok" : L"link-failed");
+    if (!NT_SUCCESS(st))
+        return st;
 
     drv->MajorFunction[IRP_MJ_CREATE]         = GuCreateClose;
     drv->MajorFunction[IRP_MJ_CLOSE]          = GuCreateClose;

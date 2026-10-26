@@ -585,6 +585,28 @@ NTSTATUS GuTxProbe(GU_WORK *w)
         for (u32 i = 1; i < 64; i++)
             (void)GuCfgDwordR(w, i * 4, &dump[i - 1], FALSE);
     }
+    // Experiment V2: benign write test on the displaced card. Cache Line Size
+    // (byte at 0x0C) is a harmless hint register. Write, read back, restore.
+    // Diag[6]=20: write LANDED (config writes reach the function -> D3hot,
+    // runtime path alive with corrected targets). Diag[6]=21: write did not
+    // stick (writes dead -> D3cold confirmed). Byte-granular only: the dword
+    // at 0x0C contains Header Type and BIST, which must not be touched.
+    if (w->Flags & 2u) {
+        u8 orig = 0, got = 0, want;
+        if (GuCfgRead(w, 0x0C, &orig, 1, FALSE) == 0) {
+            want = (orig == 0x20) ? 0x10 : 0x20;
+            if (GuCfgWrite(w, 0x0C, &want, 1, FALSE) == 0 &&
+                GuCfgRead(w, 0x0C, &got, 1, FALSE) == 0) {
+                w->Out->Diag[6] = (got == want) ? 20 : 21;
+                (void)GuCfgWrite(w, 0x0C, &orig, 1, FALSE); // restore
+            } else {
+                w->Out->Diag[6] = 22; // write or readback path failed
+            }
+        } else {
+            w->Out->Diag[6] = 23; // baseline byte read failed
+        }
+        GU_NOTE("probe CLS test: result=%u\n", w->Out->Diag[6]);
+    }
     GU_NOTE("probe: id=%#x subsys=%#x bar0=%#llx chip=%#x pm=%u\n",
             id, subsys, (unsigned long long)pa.QuadPart, chip, pmcsr);
     return STATUS_SUCCESS;
