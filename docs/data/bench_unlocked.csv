@@ -1,0 +1,16 @@
+csv,device,NVIDIA GeForce RTX 3060 Ti,SM,8.6,38 SMs,clocks,210 MHz, 49, 9.99 W, 3 %
+csv,duty,M,N,K,batch,fp32,fp16,bf16
+csv,llm_train_2048,2048,2048,2048,1,24.79,27.32,28.93
+csv,llm_train_4096,4096,4096,4096,1,29.40,31.38,30.87
+csv,llm_train_8192,8192,8192,8192,1,31.25,36.71,36.67
+csv,tall_linear,16384,4096,4096,1,34.13,37.04,37.10
+csv,trace,4096 fp16 iterations
+csv,trace,0,35.386,1965 MHz, 59, 117.12 W, 69 %
+csv,trace,1,32.187,1965 MHz, 59, 117.12 W, 69 %
+csv,trace,2,35.312,1965 MHz, 59, 117.12 W, 69 %
+csv,trace,3,35.339,1965 MHz, 55, 93.71 W, 18 %
+csv,trace,4,35.296,1965 MHz, 55, 93.71 W, 18 %
+csv,trace,5,32.072,1965 MHz, 55, 93.71 W, 18 %
+csv,trace,6,35.302,1965 MHz, 55, 82.03 W, 12 %
+csv,trace,7,32.063,1965 MHz, 55, 82.03 W, 12 %
+csv,trace,8,30.799,1965 MHz, 55, 82.03 W, 12 %
