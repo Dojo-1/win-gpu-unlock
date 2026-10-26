@@ -12,7 +12,12 @@ $vcvars  = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
 $inc     = "-Itests\host_harness -Idriver"
 $flags   = "/nologo /c /Zi /W4 /D_AMD64_ /D_WIN64 /DWIN32_LEAN_AND_MEAN /DGU_WINDOWS_KERNEL=1"
 
-$lines = @("call `"$vcvars`"")
+$msvcDir = 'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207'
+$kitDir  = 'C:\Program Files (x86)\Windows Kits\10'
+$sdkV    = '10.0.26100.0'
+$lines = @(('set "INCLUDE={0}\include;{1}\Include\{2}\ucrt;{1}\Include\{2}\um;{1}\Include\{2}\shared"' -f $msvcDir, $kitDir, $sdkV),
+          ('set "LIB={0}\lib\x64;{1}\Lib\{2}\ucrt\x64;{1}\Lib\{2}\um\x64"' -f $msvcDir, $kitDir, $sdkV),
+          ('set "PATH={0}\bin\Hostx64\x64;C:\Windows\System32;C:\Windows"' -f $msvcDir))
 foreach ($s in @('tests\host_harness\harness.c','driver\gu_rt.c','driver\gu_gsp.c','driver\gu_transaction.c',
                  'driver\portable\prep_610.c','driver\portable\vbios_610.c','driver\portable\layout_610.c','driver\portable\gfw_eval.c')) {
   $obj = Join-Path $out (([IO.Path]::GetFileNameWithoutExtension($s)) + '.obj')

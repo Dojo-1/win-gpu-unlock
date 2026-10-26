@@ -185,11 +185,20 @@ static NTSTATUS GuFltPnp(PDEVICE_OBJECT dev, PIRP irp)
     NTSTATUS st;
 
     switch (io->MinorFunction) {
-    case IRP_MN_START_DEVICE:
-        if (ext->IsTarget && !gPassive && GuFltReadDword(L"Enable") == 1)
+    case IRP_MN_START_DEVICE: {
+        // unconditional trace marks: every start through this filter is
+        // visible even when the gate refuses (the armed run showed empty
+        // marks with a 1s rebind - blind spot now closed)
+        ULONG enableRead = GuFltReadDword(L"Enable");
+        GuFltMark(L"StartSeen", 1);
+        GuFltMark(L"StartTarget", ext->IsTarget ? 1 : 0);
+        GuFltMark(L"StartPassive", gPassive ? 1 : 0);
+        GuFltMark(L"StartEnable", enableRead);
+        if (ext->IsTarget && !gPassive && enableRead == 1)
             return GuFltStartSerialized(ext, irp);
         IoSkipCurrentIrpStackLocation(irp);
         return IoCallDriver(ext->Next, irp);
+    }
     case IRP_MN_REMOVE_DEVICE:
         IoSkipCurrentIrpStackLocation(irp);
         st = IoCallDriver(ext->Next, irp);
