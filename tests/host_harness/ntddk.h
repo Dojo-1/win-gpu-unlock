@@ -139,9 +139,10 @@ void ZwClose(void *handle);
 #define IRP_MN_REMOVE_DEVICE 0x02
 #define IO_NO_INCREMENT 0
 struct _IO_STACK_LOCATION {
+    UCHAR MajorFunctionByte; UCHAR MinorFunction; // top-level, matching real WDK usage
     union {
         struct { PVOID Type3InputBuffer; ULONG IoControlCode; ULONG InputBufferLength; ULONG OutputBufferLength; } DeviceIoControl;
-        struct { ULONG MinorFunction; } Pnp;
+        struct { ULONG MinorFunctionU; ULONG MajorFunction; } Pnp;
     } Parameters;
     struct _DEVICE_OBJECT *DeviceObject;
 };
@@ -168,10 +169,16 @@ void IoDetachDevice(PDEVICE_OBJECT dev);
 // device properties
 typedef enum _DEVICE_REGISTRY_PROPERTY { DevicePropertyHardwareID = 2, DevicePropertyBusNumber = 15, DevicePropertyAddress = 16 } DEVICE_REGISTRY_PROPERTY;
 NTSTATUS IoGetDeviceProperty(PDEVICE_OBJECT dev, DEVICE_REGISTRY_PROPERTY prop, ULONG len, void *buf, ULONG *resultlen);
-// registry extras (gu_flt)
+// registry extras (gu_flt, gu_rt GuMarkStage)
 typedef ULONG ACCESS_MASK;
-#define KEY_VALUE_PARTIAL_INFORMATION_STRUCT 1
+#define KEY_SET_VALUE 0x0002
+#define KEY_QUERY_VALUE 0x0001
+#define REG_SZ 1
+#define REG_DWORD 4
+typedef wchar_t WCHAR;
+NTSTATUS ZwSetValueKey(void *h, void *val, ULONG opt, ULONG type, void *data, ULONG len);
 typedef struct _KEY_VALUE_PARTIAL_INFORMATION { ULONG Type; ULONG DataLength; ULONG TitleIndex; UCHAR Data[1]; } KEY_VALUE_PARTIAL_INFORMATION, *PKEY_VALUE_PARTIAL_INFORMATION;
+#define KeyValuePartialInformation 1
 #define REG_OPTION_NON_VOLATILE 0
 #define EXCEPTION_EXECUTE_HANDLER 1
 NTSTATUS ZwQueryValueKey(void *h, void *val, int cls, void *info, ULONG len, ULONG *retlen);
@@ -180,6 +187,19 @@ NTSTATUS ZwFlushKey(void *h);
 // ---- device / driver ----
 #define FILE_DEVICE_UNKNOWN 0x00000022
 #define FILE_DEVICE_SECURE_OPEN 0x00000100
+struct _DRIVER_OBJECT;
+struct _DEVICE_OBJECT {
+    ULONG Flags;
+    void *DeviceExtension;
+    struct _DRIVER_OBJECT *DriverObject;
+};
+typedef struct _DEVICE_OBJECT DEVICE_OBJECT, *PDEVICE_OBJECT;
+#define DO_BUFFERED_IO 0x00000004
+#define DO_DIRECT_IO 0x00000010
+#define DO_POWER_PAGABLE 0x00002000
+#define DO_POWER_INRUSH 0x00004000
+#define DO_DEVICE_INITIALIZING 0x00000080
+#define IRP_MJ_MAXIMUM_FUNCTION 27
 NTSTATUS IoCreateDevice(PDRIVER_OBJECT drv, ULONG ext, PUNICODE_STRING name, ULONG type, ULONG chars, BOOLEAN exclusive, PDEVICE_OBJECT *out);
 void IoDeleteDevice(PDEVICE_OBJECT dev);
 NTSTATUS IoCreateSymbolicLink(PUNICODE_STRING link, PUNICODE_STRING target);
@@ -191,7 +211,7 @@ typedef DRIVER_DISPATCH PDRIVER_DISPATCH;
 typedef void (*DRIVER_UNLOAD)(PDRIVER_OBJECT);
 typedef DRIVER_UNLOAD PDRIVER_UNLOAD;
 
-'struct _DRIVER_EXTENSION { void *AddDevice; };
+struct _DRIVER_EXTENSION { void *AddDevice; };
 struct _DRIVER_OBJECT {
     PDRIVER_DISPATCH MajorFunction[28];
     PDRIVER_UNLOAD DriverUnload;

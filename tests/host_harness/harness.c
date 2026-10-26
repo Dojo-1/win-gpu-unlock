@@ -53,6 +53,11 @@ void IoDetachDevice(PDEVICE_OBJECT d) { (void)d; }
 NTSTATUS IoGetDeviceProperty(PDEVICE_OBJECT dev, DEVICE_REGISTRY_PROPERTY p, ULONG l, void *b, ULONG *r) { (void)dev; (void)p; (void)l; (void)b; if (r) *r = 0; return STATUS_UNSUCCESSFUL; }
 NTSTATUS ZwQueryValueKey(void *h, void *v, int c, void *i, ULONG l, ULONG *rl) { (void)h; (void)v; (void)c; (void)i; (void)l; if (rl) *rl = 0; return STATUS_UNSUCCESSFUL; }
 NTSTATUS ZwFlushKey(void *h) { (void)h; return STATUS_UNSUCCESSFUL; }
+NTSTATUS ZwSetValueKey(void *h, void *v, ULONG o, ULONG t, void *d, ULONG l) { (void)h; (void)v; (void)o; (void)t; (void)d; (void)l; return STATUS_UNSUCCESSFUL; }
+NTSTATUS ZwCreateKey(void **h, ACCESS_MASK m, void *oa, ULONG opt, void *cls, ULONG disp, ULONG *disposition) { (void)h;(void)m;(void)oa;(void)opt;(void)cls;(void)disp;(void)disposition; return STATUS_UNSUCCESSFUL; }
+void PsTerminateSystemThread(NTSTATUS st) { (void)st; }
+NTSTATUS PsCreateSystemThread(void **h, ULONG a, void *oa, void *p, void *c, void *start, void *ctx) { (void)h;(void)a;(void)oa;(void)p;(void)c;(void)start;(void)ctx; return STATUS_UNSUCCESSFUL; }
+LONG InterlockedCompareExchange(volatile LONG *d, LONG e, LONG c) { LONG o = *d; if (o == c) *d = e; return o; }
 
 /* Zw surface stubs: all fail, so GuGspOpen refuses (fail-closed smoke path) */
 NTSTATUS ZwCreateFile(void **h, ULONG a, void *oa, void *iosb, void *al, ULONG at, ULONG sh, ULONG d, ULONG o, void *e, ULONG el)
