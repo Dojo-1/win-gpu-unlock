@@ -89,14 +89,18 @@ if unwind fails: **STOP / POWER OFF** (upstream rule, `README` warnings).
 - **E1 · Post-disable reachability — RESOLVED (2026-10-26)**: PnP-disable leaves the card
   with config reads split — ID/BAR values HAL-cached and valid, cap chain and PMCSR
   reading as garbage — and MMIO dead. `remove-device` behaves identically.
-- **E2 · FLR-induction of the boot path — RESOLVED NEGATIVE on P1 (2026-10-26)**:
-  claim passes (enumeration-time cap cache + FLR-establishes-D0 restructure). Induce
-  cannot wake the function: PMCSR D0 write and config-space FLR write both fail to
-  restore MMIO — config writes do not land in the displaced power state at all. The
-  runtime window Linux gets by transacting at boot (card D0-unowned) does not exist at
-  Windows runtime on this platform. Remaining viable routes: (A) WDF function driver
-  binding the PDO with power-IRP control — the true analog of unbind/transact/rebind;
-  (B) the boot-time UEFI arm (original path 1), where D0-unowned is natural.
+- **E2 · FLR-induction of the boot path — CORRECTED (2026-10-26, second run)**:
+  The first interpretation ("config writes do not land") was WRONG. The FLR config
+  write DID reach the card: post-run desktop instability (session lock hang, reboot
+  required) is an impossible symptom of a dead write. The rung-2 probe read BAR0 once
+  at 1.0 s; the card's ROM-GFW boot needs up to 2.05 s (GU_GFW_TIMEOUT_US) — wake was
+  checked too early. Corrected ladder: PMCSR-D0 polled 500 ms, FLR polled 4 s.
+  E3 (nvlddmkm rebind on an FLR'd card) remains the fragile step: the aborted path
+  re-enabled a half-reset card and degraded the session; the designed full path ends
+  in the upstream containment state built for exactly that rebind. Handover protocol:
+  controlled re-enable → wait bind → settle → verify nvidia-smi → benchmark BEFORE
+  any reboot (the unlock is power-volatile). In-session repair if the desktop
+  glitches: Win+Ctrl+Shift+B (display driver restart, session-safe).
 - **E3 · nvlddmkm rebind tolerance**: whether enable-device re-initializes a mid-session
   unlocked card without reboot on Win11 617.14. TDR-free requirement for gate G3.
 

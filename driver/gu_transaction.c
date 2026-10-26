@@ -750,20 +750,27 @@ NTSTATUS GuTxInduce(GU_WORK *w)
             w->Out->Diag[6] = 10; // baseline MMIO dead
             if (gCachedPmCap >= 0) {
                 (void)GuCfgWordW(w, PCI_PM_CTRL, 0, TRUE);      // D0 request
-                LARGE_INTEGER t; t.QuadPart = -20 * 10000;       // 20 ms
-                KeDelayExecutionThread(KernelMode, FALSE, &t);
-                if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip)) {
-                    mmio_ok = 1;
-                    w->Out->Diag[6] = 11;                        // PMCSR write woke it
+                for (u32 j = 0; j < 10 && !mmio_ok; j++) {       // poll 500 ms
+                    LARGE_INTEGER t; t.QuadPart = -5 * 10000;    // 50 ms
+                    KeDelayExecutionThread(KernelMode, FALSE, &t);
+                    if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip)) {
+                        mmio_ok = 1;
+                        w->Out->Diag[6] = 11;                    // PMCSR write woke it
+                    }
                 }
             }
             if (!mmio_ok) {
                 (void)GuPcieFlr(w);                              // FLR as the reset-class wake
-                LARGE_INTEGER t; t.QuadPart = -1000 * 10000;     // 1 s for FLR completion
-                KeDelayExecutionThread(KernelMode, FALSE, &t);
-                if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip)) {
-                    mmio_ok = 1;
-                    w->Out->Diag[6] = 12;                        // FLR woke it
+                // the card's ROM-GFW boot needs up to 2.05 s (GU_GFW_TIMEOUT_US);
+                // poll well past it instead of the single early read that misjudged
+                // the 2026-10-26 run (FLR landed; MMIO simply wasn't up at 1 s)
+                for (u32 j = 0; j < 80 && !mmio_ok; j++) {       // poll 4 s
+                    LARGE_INTEGER t; t.QuadPart = -5 * 10000;    // 50 ms
+                    KeDelayExecutionThread(KernelMode, FALSE, &t);
+                    if (read_bar(w, 0, &chip) == 0 && chip && !inaccessible(chip)) {
+                        mmio_ok = 1;
+                        w->Out->Diag[6] = 12;                    // FLR woke it
+                    }
                 }
             }
             if (!mmio_ok)
