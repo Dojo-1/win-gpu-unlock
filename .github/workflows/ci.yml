@@ -25,6 +25,12 @@ jobs:
             driver/portable/vbios_610.c \
             driver/portable/layout_610.c \
             driver/portable/gfw_eval.c
+      - name: compile gen-2 filter (mock WDK, own TU - DriverEntry clash)
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -DGU_WINDOWS_KERNEL=1 \
+            -Itests/host_harness -Idriver \
+            -c driver/gu_flt.c -o gu_flt.o
       - name: run smoke checks
         run: ./harness
 

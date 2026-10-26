@@ -133,15 +133,49 @@ void ZwClose(void *handle);
 #define IRP_MJ_CREATE 0
 #define IRP_MJ_CLOSE  2
 #define IRP_MJ_DEVICE_CONTROL 14
+#define IRP_MJ_PNP 27
+#define IRP_MJ_POWER 22
+#define IRP_MN_START_DEVICE 0x00
+#define IRP_MN_REMOVE_DEVICE 0x02
 #define IO_NO_INCREMENT 0
 struct _IO_STACK_LOCATION {
     union {
         struct { PVOID Type3InputBuffer; ULONG IoControlCode; ULONG InputBufferLength; ULONG OutputBufferLength; } DeviceIoControl;
+        struct { ULONG MinorFunction; } Pnp;
     } Parameters;
+    struct _DEVICE_OBJECT *DeviceObject;
 };
 PIO_STACK_LOCATION IoGetCurrentIrpStackLocation(PIRP irp);
 struct _IRP { IO_STATUS_BLOCK IoStatus; union { PVOID SystemBuffer; } AssociatedIrp; };
 void IoCompleteRequest(PIRP irp, char prioboost);
+// filter pass-through surface (gu_flt.c)
+void IoSkipCurrentIrpStackLocation(PIRP irp);
+void IoCopyCurrentIrpStackLocationToNext(PIRP irp);
+typedef void (*PIO_COMPLETION_ROUTINE)(PDEVICE_OBJECT, PIRP, PVOID);
+void IoSetCompletionRoutine(PIRP irp, void *routine, PVOID ctx, int onOk, int onErr, int onCancel);
+NTSTATUS IoCallDriver(PDEVICE_OBJECT dev, PIRP irp);
+#define STATUS_MORE_PROCESSING_REQUIRED ((NTSTATUS)0xC0000016)
+// events / waits
+typedef struct _KEVENT { int dummy; } KEVENT, *PKEVENT;
+#define NotificationEvent 0
+#define Executive 0
+void KeInitializeEvent(PKEVENT e, int type, int state);
+void KeSetEvent(PKEVENT e, int boost, int wait);
+int KeWaitForSingleObject(PKEVENT e, int mode, int mode2, int alertable, void *timeout);
+// stack attach
+PDEVICE_OBJECT IoAttachDeviceToDeviceStack(PDEVICE_OBJECT self, PDEVICE_OBJECT pdo);
+void IoDetachDevice(PDEVICE_OBJECT dev);
+// device properties
+typedef enum _DEVICE_REGISTRY_PROPERTY { DevicePropertyHardwareID = 2, DevicePropertyBusNumber = 15, DevicePropertyAddress = 16 } DEVICE_REGISTRY_PROPERTY;
+NTSTATUS IoGetDeviceProperty(PDEVICE_OBJECT dev, DEVICE_REGISTRY_PROPERTY prop, ULONG len, void *buf, ULONG *resultlen);
+// registry extras (gu_flt)
+typedef ULONG ACCESS_MASK;
+#define KEY_VALUE_PARTIAL_INFORMATION_STRUCT 1
+typedef struct _KEY_VALUE_PARTIAL_INFORMATION { ULONG Type; ULONG DataLength; ULONG TitleIndex; UCHAR Data[1]; } KEY_VALUE_PARTIAL_INFORMATION, *PKEY_VALUE_PARTIAL_INFORMATION;
+#define REG_OPTION_NON_VOLATILE 0
+#define EXCEPTION_EXECUTE_HANDLER 1
+NTSTATUS ZwQueryValueKey(void *h, void *val, int cls, void *info, ULONG len, ULONG *retlen);
+NTSTATUS ZwFlushKey(void *h);
 
 // ---- device / driver ----
 #define FILE_DEVICE_UNKNOWN 0x00000022
@@ -157,9 +191,11 @@ typedef DRIVER_DISPATCH PDRIVER_DISPATCH;
 typedef void (*DRIVER_UNLOAD)(PDRIVER_OBJECT);
 typedef DRIVER_UNLOAD PDRIVER_UNLOAD;
 
+'struct _DRIVER_EXTENSION { void *AddDevice; };
 struct _DRIVER_OBJECT {
     PDRIVER_DISPATCH MajorFunction[28];
     PDRIVER_UNLOAD DriverUnload;
+    struct _DRIVER_EXTENSION *DriverExtension;
 };
 
 // ---- CTL_CODE ----

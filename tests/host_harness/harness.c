@@ -40,6 +40,20 @@ int KeDelayExecutionThread(int mode, BOOLEAN alertable, LARGE_INTEGER *interval)
 { (void)mode; (void)alertable; (void)interval; g_now_100ns += 100000; return 0; }
 void KeMemoryBarrier(void) {}
 
+/* filter pass-through surface stubs (gu_flt.c) - all inert */
+void IoSkipCurrentIrpStackLocation(PIRP irp) { (void)irp; }
+void IoCopyCurrentIrpStackLocationToNext(PIRP irp) { (void)irp; }
+void IoSetCompletionRoutine(PIRP irp, void *r, PVOID c, int a, int b, int d) { (void)irp; (void)r; (void)c; (void)a; (void)b; (void)d; }
+NTSTATUS IoCallDriver(PDEVICE_OBJECT dev, PIRP irp) { (void)dev; (void)irp; return STATUS_UNSUCCESSFUL; }
+void KeInitializeEvent(PKEVENT e, int t, int s) { (void)e; (void)t; (void)s; }
+void KeSetEvent(PKEVENT e, int b, int w) { (void)e; (void)b; (void)w; }
+int KeWaitForSingleObject(PKEVENT e, int m, int m2, int a, void *t) { (void)e; (void)m; (void)m2; (void)a; (void)t; return 0; }
+PDEVICE_OBJECT IoAttachDeviceToDeviceStack(PDEVICE_OBJECT s, PDEVICE_OBJECT p) { (void)s; (void)p; return (PDEVICE_OBJECT)1; }
+void IoDetachDevice(PDEVICE_OBJECT d) { (void)d; }
+NTSTATUS IoGetDeviceProperty(PDEVICE_OBJECT dev, DEVICE_REGISTRY_PROPERTY p, ULONG l, void *b, ULONG *r) { (void)dev; (void)p; (void)l; (void)b; if (r) *r = 0; return STATUS_UNSUCCESSFUL; }
+NTSTATUS ZwQueryValueKey(void *h, void *v, int c, void *i, ULONG l, ULONG *rl) { (void)h; (void)v; (void)c; (void)i; (void)l; if (rl) *rl = 0; return STATUS_UNSUCCESSFUL; }
+NTSTATUS ZwFlushKey(void *h) { (void)h; return STATUS_UNSUCCESSFUL; }
+
 /* Zw surface stubs: all fail, so GuGspOpen refuses (fail-closed smoke path) */
 NTSTATUS ZwCreateFile(void **h, ULONG a, void *oa, void *iosb, void *al, ULONG at, ULONG sh, ULONG d, ULONG o, void *e, ULONG el)
 { (void)h;(void)a;(void)oa;(void)iosb;(void)al;(void)at;(void)sh;(void)d;(void)o;(void)e;(void)el; return STATUS_UNSUCCESSFUL; }

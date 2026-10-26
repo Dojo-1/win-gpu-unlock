@@ -32,6 +32,17 @@
 #include "gu_transaction.h"
 #include "gu_fw_blobs.h"
 
+// SEH portability: real __try/__except under MSVC; compile-out under the
+// GCC host-harness build (the guarded body still type-checks, the handler
+// becomes dead code and is excluded by the linker)
+#if defined(_MSC_VER)
+#define GU_SEH_TRY __try
+#define GU_SEH_EXCEPT(filter) __except (filter)
+#else
+#define GU_SEH_TRY if (1)
+#define GU_SEH_EXCEPT(filter) else if (0)
+#endif
+
 typedef struct _GU_FLT_EXT {
     PDEVICE_OBJECT Next;
     PDEVICE_OBJECT Self;
@@ -118,10 +129,10 @@ static void GuFltRunTransaction(GU_FLT_EXT *ext)
     // can run the real unwind - mapping/handle/DMA cleanup and the
     // keep-if-firmware-running decision - instead of leaking and handing
     // nvlddmkm a torn GPU with a SUCCESS start
-    __try {
+    GU_SEH_TRY {
         st = GuRunTower(&w, 12);
     }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
+    GU_SEH_EXCEPT (EXCEPTION_EXECUTE_HANDLER) {
         (void)GuTxUnwind(&w);
         st = STATUS_UNSUCCESSFUL;
         GuFltMark(L"LastRunState", 4);   // guarded fault: unwound, boot proceeds
