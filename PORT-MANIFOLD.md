@@ -89,20 +89,25 @@ if unwind fails: **STOP / POWER OFF** (upstream rule, `README` warnings).
 - **E1 · Post-disable reachability — RESOLVED (2026-10-26)**: PnP-disable leaves the card
   with config reads split — ID/BAR values HAL-cached and valid, cap chain and PMCSR
   reading as garbage — and MMIO dead. `remove-device` behaves identically.
-- **E2 · FLR-induction of the boot path — CORRECTED (2026-10-26, second run)**:
-  The first interpretation ("config writes do not land") was WRONG. The FLR config
-  write DID reach the card: post-run desktop instability (session lock hang, reboot
-  required) is an impossible symptom of a dead write. The rung-2 probe read BAR0 once
-  at 1.0 s; the card's ROM-GFW boot needs up to 2.05 s (GU_GFW_TIMEOUT_US) — wake was
-  checked too early. Corrected ladder: PMCSR-D0 polled 500 ms, FLR polled 4 s.
-  E3 (nvlddmkm rebind on an FLR'd card) remains the fragile step: the aborted path
-  re-enabled a half-reset card and degraded the session; the designed full path ends
-  in the upstream containment state built for exactly that rebind. Handover protocol:
-  controlled re-enable → wait bind → settle → verify nvidia-smi → benchmark BEFORE
-  any reboot (the unlock is power-volatile). In-session repair if the desktop
-  glitches: Win+Ctrl+Shift+B (display driver restart, session-safe).
-- **E3 · nvlddmkm rebind tolerance**: whether enable-device re-initializes a mid-session
-  unlocked card without reboot on Win11 617.14. TDR-free requirement for gate G3.
+- **E2 · FLR-induction of the boot path — FINAL: runtime path closed by D3cold
+  (2026-10-26, run12 cycle)**: warm cache succeeded (pcie=0x78 pm=0x60). The wake
+  ladder failed at both rungs even with polls past the ROM-GFW budget: PMCSR D0
+  write + 500 ms poll dead; FLR write + 4 s poll dead. Decisive datum: the rebind
+  via scan-devices took **15 s** (healthy re-enable: 1–2 s) and degraded the session
+  twice identically — the signature of the platform power-cycling the slot.
+  Conclusion: on this Acer OEM platform, PnP displacement (disable AND remove)
+  drops the function to **D3cold** — main rail off, platform-controlled. In D3cold
+  PMCSR wake is impossible by spec and FLR does not apply (a D0 mechanism). No
+  config-space path reaches the card; the earlier "FLR landed" reading was wrong —
+  the degradation was the power cycle, not the writes. Runtime induction — this
+  project's core hypothesis — is CLOSED on P1 by hardware, not software defect.
+  The D0-unowned window Linux transacts in exists on Windows only (A) behind a
+  function driver that owns the PDO and holds the card in D0, or (B) at boot in
+  the UEFI arm.
+- **E3 · nvlddmkm rebind tolerance — NEGATIVE for mid-session D3cold cycling**: both
+  power-cycled runs left the desktop degraded (window selection dead, session lock
+  hangs, reboot required). Consequence of the platform cycle, not the transaction
+  design.
 
 ## §6 · Deliverable honesty ledger (σ₃)
 
